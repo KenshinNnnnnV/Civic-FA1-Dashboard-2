@@ -1,17 +1,28 @@
-# Civic FA1 Dashboard Test
+# Civic FA1 Dashboard v0.2
 
-Тестовый Android-проект для Honda Civic FA1.
+Полноэкранная тестовая версия интерфейса для Android-магнитолы Honda Civic FA1.
 
-## Что делает
-- landscape / fullscreen;
-- макет под 1280×720;
-- тестовые RPM, скорость, температура ОЖ и напряжение;
-- без OBD и без управления ECU.
+## Что нового в v0.2
 
-## Как собрать APK
-1. Загрузить содержимое проекта в корень репозитория.
-2. Открыть вкладку **Actions**.
-3. Выбрать **Build Android APK**.
-4. Запустить workflow или просто сделать push в `main`.
-5. После успешной сборки скачать artifact `Civic-FA1-Dashboard-Test-APK`.
-6. Внутри будет `app-debug.apk`.
+- 3 режима: Street / Sport / Diagnostics
+- переключение режимов касанием нижних вкладок
+- собственная отрисовка приборов
+- плавная симуляция данных
+- shift lights в Sport Mode
+- диагностический экран
+- landscape / fullscreen
+- рассчитано на экран 1280×720
+
+## Важно
+
+Пока это **симулятор**. OBD ещё не подключён.
+Когда придёт Vgate iCar Pro BT 3.0, реальные PID заменят тестовые значения.
+
+## Сборка APK
+
+Push в `main` автоматически запускает GitHub Actions.
+После успешной сборки скачайте artifact:
+
+`Civic-FA1-Dashboard-v0.2-APK`
+
+Внутри будет `app-debug.apk`.
