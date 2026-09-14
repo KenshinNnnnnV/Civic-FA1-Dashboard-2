@@ -61,6 +61,7 @@ public class DashboardView extends View implements ObdManager.Listener {
     private String overlayTitle = null;
     private String overlayValue = null;
     private String overlayBody = null;
+    private boolean obdSelectorOpen = false;
 
     private static final int WHITE = Color.rgb(242, 246, 249);
     private static final int MUTED = Color.rgb(170, 183, 192);
@@ -146,6 +147,8 @@ public class DashboardView extends View implements ObdManager.Listener {
             drawDiagnosticsLiveValues(c);
         }
 
+        drawUnifiedModeTabs(c);
+        if (obdSelectorOpen) drawObdSelector(c);
         if (overlayTitle != null) drawOverlay(c);
     }
 
@@ -247,6 +250,11 @@ public class DashboardView extends View implements ObdManager.Listener {
         liveText(c, String.valueOf(Math.round(rpm)), 640, 305, 68, WHITE, Paint.Align.CENTER);
         text(c, "RPM", 640, 337, 22, MUTED, Paint.Align.CENTER, false);
 
+        // Remove the old bright green speed pedestal without changing the layout geometry.
+        p.clearShadowLayer();
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(238, 5, 17, 19));
+        c.drawRoundRect(new RectF(sx(548), sy(374), sx(735), sy(455)), sx(7), sx(7), p);
         liveText(c, String.valueOf(Math.round(speed)), 625, 435, 55, WHITE, Paint.Align.CENTER);
         unitText(c, "km/h", 700, 435, 18);
 
@@ -344,35 +352,26 @@ public class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void drawDiagnosticsLiveValues(Canvas c) {
-        // Connection and ECU cards are live UI, not baked text.
+        // v0.4.0 restores the cleaner v0.3.3 diagnostics composition.
+        // Only the numeric fields and live sensor table are dynamic.
         int stateColor = obdState == ObdManager.State.ERROR ? Color.rgb(255, 88, 74) : GREEN;
         String connection = obdState == ObdManager.State.ECU_CONNECTED ? "CONNECTED" :
                 obdState == ObdManager.State.SEARCHING ? "SEARCHING" :
                 obdState == ObdManager.State.ADAPTER_FOUND ? "ADAPTER FOUND" :
                 obdState == ObdManager.State.CONNECTING ? "CONNECTING" :
                 obdState == ObdManager.State.ERROR ? "ERROR" : "SIMULATOR";
-        text(c, connection, 325, 145, 26, stateColor, Paint.Align.LEFT, true);
-        text(c, "Transport: " + obdTransport, 325, 174, 14, MUTED, Paint.Align.LEFT, false);
-        text(c, obdDetail, 325, 198, 13, MUTED, Paint.Align.LEFT, false);
+        text(c, connection, 325, 145, 24, stateColor, Paint.Align.LEFT, true);
+        text(c, obdTransport, 325, 174, 13, MUTED, Paint.Align.LEFT, false);
+        text(c, obdDetail, 325, 198, 12.5f, MUTED, Paint.Align.LEFT, false);
 
-        String ecu = liveConnected ? "LIVE ECU" : "SIMULATED";
-        text(c, ecu, 738, 145, 26, liveConnected ? GREEN : MUTED, Paint.Align.LEFT, true);
-        text(c, "ECU: PGM-FI (Honda)", 738, 174, 14, MUTED, Paint.Align.LEFT, false);
-        text(c, liveConnected ? "Data source: ELM327 / Vgate" : "Data source: local simulator", 738, 198, 13, MUTED, Paint.Align.LEFT, false);
-
+        text(c, liveConnected ? "LIVE ECU" : "SIMULATED", 738, 145, 24, liveConnected ? GREEN : MUTED, Paint.Align.LEFT, true);
+        text(c, "PGM-FI (Honda)", 738, 174, 13, MUTED, Paint.Align.LEFT, false);
+        text(c, liveConnected ? "ELM327 / Vgate live data" : "Local simulator", 738, 198, 12.5f, MUTED, Paint.Align.LEFT, false);
         drawMetric(c, 150, 317, voltage, "V", 29, 10, 16, 50, 333, 246);
         drawMetric(c, 395, 317, coolant, "°C", 29, 50, 130, 297, 333, 496);
         drawMetric(c, 635, 317, intake, "°C", 29, -20, 80, 544, 333, 744);
         drawMetric(c, 875, 317, throttle, "%", 29, 0, 100, 786, 333, 985);
         drawMetric(c, 1120, 317, load, "%", 29, 0, 100, 1033, 333, 1230);
-
-        text(c, liveConnected ? "DTC STATUS READY" : "SIMULATOR - NO TEST DTC", 125, 490, 20, GREEN, Paint.Align.LEFT, true);
-        text(c, liveConnected ? "Tap this card to add DTC read/clear next." : "No ECU trouble codes are being claimed.", 125, 525, 13, MUTED, Paint.Align.LEFT, false);
-
-        text(c, liveConnected ? "LIVE MONITORS" : "SIMULATED MONITORS", 455, 435, 18, GREEN, Paint.Align.LEFT, true);
-        text(c, "Misfire  •  Fuel System  •  Components", 455, 470, 13, MUTED, Paint.Align.LEFT, false);
-        text(c, "Catalyst  •  O2 Sensor  •  EGR", 455, 498, 13, MUTED, Paint.Align.LEFT, false);
-        text(c, liveConnected ? "ECU link active" : "Waiting for real ECU", 455, 526, 13, MUTED, Paint.Align.LEFT, false);
 
         float y = 432;
         drawSensorRow(c, "RPM", String.format(Locale.US, "%.0f rpm", rpm), y); y += 21;
@@ -442,11 +441,21 @@ public class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void startObdConnection() {
-        if (!activity.hasObdBluetoothPermissions()) {
+        obdSelectorOpen = true;
+        invalidate();
+    }
+
+    private void connectSelectedObd(int option) {
+        obdSelectorOpen = false;
+        if (option != 3 && !activity.hasObdBluetoothPermissions()) {
             showDetail("OBD CONNECTION", "PERMISSION REQUIRED", "Allow Bluetooth permission, then tap OBD again.");
             return;
         }
-        obdManager.startAutoConnect();
+        if (option == 0) obdManager.startAutoConnect();
+        else if (option == 1) obdManager.startBleConnect();
+        else if (option == 2) obdManager.startClassicConnect();
+        else if (option == 3) obdManager.startWifiConnect();
+        invalidate();
     }
 
     public void onBluetoothPermissionResult(boolean granted) {
@@ -486,6 +495,18 @@ public class DashboardView extends View implements ObdManager.Listener {
     public boolean onTouchEvent(MotionEvent event) {
         if (event.getAction() != MotionEvent.ACTION_UP) return true;
 
+        float x = event.getX() * 1280f / getWidth();
+        float y = event.getY() * 720f / getHeight();
+
+        if (obdSelectorOpen) {
+            if (in(x, y, 315, 245, 965, 315)) connectSelectedObd(0);
+            else if (in(x, y, 315, 325, 965, 395)) connectSelectedObd(1);
+            else if (in(x, y, 315, 405, 965, 475)) connectSelectedObd(2);
+            else if (in(x, y, 315, 485, 965, 555)) connectSelectedObd(3);
+            else { obdSelectorOpen = false; invalidate(); }
+            return true;
+        }
+
         if (overlayTitle != null) {
             overlayTitle = null;
             overlayValue = null;
@@ -493,9 +514,6 @@ public class DashboardView extends View implements ObdManager.Listener {
             invalidate();
             return true;
         }
-
-        float x = event.getX() * 1280f / getWidth();
-        float y = event.getY() * 720f / getHeight();
 
         if (y < 70f && x > 880f && x < 1140f) {
             startObdConnection();
@@ -542,6 +560,66 @@ public class DashboardView extends View implements ObdManager.Listener {
         overlayValue = value;
         overlayBody = body;
         invalidate();
+    }
+
+    private void drawUnifiedModeTabs(Canvas c) {
+        // Equal 1/3-width hit/visual zones in every mode. The veil suppresses
+        // different baked active-tab glows without moving the layout.
+        p.clearShadowLayer();
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(112, 2, 8, 13));
+        c.drawRect(0, sy(625), getWidth(), getHeight(), p);
+
+        float[][] tabs = new float[][] {{6, 631, 420, 710}, {432, 631, 848, 710}, {860, 631, 1274, 710}};
+        int active = mode == Mode.STREET ? 0 : mode == Mode.SPORT ? 1 : 2;
+        int color = active == 0 ? Color.rgb(30, 240, 145) : active == 1 ? Color.rgb(255, 72, 72) : Color.rgb(50, 220, 235);
+        RectF r = new RectF(sx(tabs[active][0]), sy(tabs[active][1]), sx(tabs[active][2]), sy(tabs[active][3]));
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(sx(2.2f));
+        p.setColor(color);
+        p.setShadowLayer(sx(7f), 0f, sy(2f), Color.argb(150, Color.red(color), Color.green(color), Color.blue(color)));
+        c.drawRoundRect(r, sx(7f), sx(7f), p);
+        p.clearShadowLayer();
+        p.setStrokeWidth(sx(3f));
+        c.drawLine(sx(tabs[active][0] + 28), sy(706), sx(tabs[active][2] - 28), sy(706), p);
+        p.setStyle(Paint.Style.FILL);
+    }
+
+    private void drawObdSelector(Canvas c) {
+        p.clearShadowLayer();
+        p.setColor(Color.argb(190, 0, 0, 0));
+        c.drawRect(0, 0, getWidth(), getHeight(), p);
+
+        RectF panel = new RectF(sx(280), sy(150), sx(1000), sy(590));
+        p.setColor(Color.argb(252, 5, 16, 20));
+        c.drawRoundRect(panel, sx(18), sx(18), p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(sx(2));
+        p.setColor(Color.rgb(45, 225, 200));
+        c.drawRoundRect(panel, sx(18), sx(18), p);
+        p.setStyle(Paint.Style.FILL);
+
+        text(c, "OBD CONNECTION", 640, 195, 27, WHITE, Paint.Align.CENTER, true);
+        text(c, "Choose adapter / transport", 640, 220, 14, MUTED, Paint.Align.CENTER, false);
+        drawObdOption(c, 245, "AUTO", "Try paired BT 3.0, then BLE 4.0");
+        drawObdOption(c, 325, "BLE 4.0", "Recommended for Vgate iCar Pro BLE 4.0 DUAL");
+        drawObdOption(c, 405, "BT 3.0 / CLASSIC", "Use a paired Bluetooth ELM327 adapter");
+        drawObdOption(c, 485, "WIFI ELM327", "Default 192.168.0.10 : 35000");
+        text(c, "Tap outside to close", 640, 575, 13, MUTED, Paint.Align.CENTER, false);
+    }
+
+    private void drawObdOption(Canvas c, float top, String title, String subtitle) {
+        RectF r = new RectF(sx(315), sy(top), sx(965), sy(top + 70));
+        p.setColor(Color.argb(235, 10, 28, 32));
+        c.drawRoundRect(r, sx(11), sx(11), p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(sx(1.2f));
+        p.setColor(Color.argb(145, 65, 220, 215));
+        c.drawRoundRect(r, sx(11), sx(11), p);
+        p.setStyle(Paint.Style.FILL);
+        text(c, title, 345, top + 29, 19, WHITE, Paint.Align.LEFT, true);
+        text(c, subtitle, 345, top + 52, 12.5f, MUTED, Paint.Align.LEFT, false);
+        text(c, ">", 930, top + 42, 26, Color.rgb(80, 235, 210), Paint.Align.CENTER, true);
     }
 
     private void drawOverlay(Canvas c) {

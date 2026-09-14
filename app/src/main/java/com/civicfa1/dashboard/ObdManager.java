@@ -19,6 +19,8 @@ import android.os.Looper;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -79,6 +81,9 @@ public class ObdManager {
     private OutputStream classicOut;
 
     private BluetoothGatt gatt;
+    private Socket wifiSocket;
+    private InputStream wifiIn;
+    private OutputStream wifiOut;
     private BluetoothGattCharacteristic bleWrite;
     private BluetoothGattCharacteristic bleNotify;
     private BluetoothLeScanner bleScanner;
@@ -119,27 +124,80 @@ public class ObdManager {
     public void startAutoConnect() {
         stopped = false;
         closeConnections(false);
-        if (adapter == null) {
-            state(State.ERROR, "Bluetooth not available", "NONE");
-            return;
-        }
-        try {
-            if (!adapter.isEnabled()) {
-                state(State.ERROR, "Turn Bluetooth on", "NONE");
-                return;
-            }
-        } catch (SecurityException e) {
-            state(State.ERROR, "Bluetooth permission required", "NONE");
-            return;
-        }
+        if (!prepareBluetooth("AUTO")) return;
 
         state(State.SEARCHING, "Looking for Vgate / iCar / OBD adapter", "AUTO");
         BluetoothDevice classicCandidate = findBondedCandidate();
         if (classicCandidate != null) {
-            connectClassic(classicCandidate);
+            connectClassic(classicCandidate, true);
         } else {
             startBleScan();
         }
+    }
+
+    public void startBleConnect() {
+        stopped = false;
+        closeConnections(true);
+        if (!prepareBluetooth("BLE")) return;
+        startBleScan();
+    }
+
+    public void startClassicConnect() {
+        stopped = false;
+        closeConnections(true);
+        if (!prepareBluetooth("BLUETOOTH CLASSIC")) return;
+        BluetoothDevice classicCandidate = findBondedCandidate();
+        if (classicCandidate == null) {
+            state(State.ERROR, "Pair Vgate / iCar Pro in Android Bluetooth settings first", "BLUETOOTH CLASSIC");
+            return;
+        }
+        connectClassic(classicCandidate, false);
+    }
+
+    public void startWifiConnect() {
+        startWifiConnect("192.168.0.10", 35000);
+    }
+
+    public void startWifiConnect(String host, int port) {
+        stopped = false;
+        closeConnections(true);
+        transportName = "WIFI";
+        state(State.SEARCHING, "Looking for ELM327 at " + host + ":" + port, "WIFI");
+        io.execute(() -> {
+            try {
+                Socket socket = new Socket();
+                socket.connect(new InetSocketAddress(host, port), 4500);
+                socket.setTcpNoDelay(true);
+                wifiSocket = socket;
+                wifiIn = socket.getInputStream();
+                wifiOut = socket.getOutputStream();
+                state(State.ADAPTER_FOUND, host + ":" + port, "WIFI");
+                state(State.CONNECTING, "Opening ELM327 Wi-Fi link", "WIFI");
+                resetElmSession();
+                startWifiReader();
+                main.postDelayed(this::sendNextCommand, 250);
+            } catch (Exception e) {
+                closeWifi();
+                state(State.ERROR, "Wi-Fi OBD not found at " + host + ":" + port, "WIFI");
+            }
+        });
+    }
+
+    private boolean prepareBluetooth(String transport) {
+        if (adapter == null) {
+            state(State.ERROR, "Bluetooth not available", transport);
+            return false;
+        }
+        try {
+            if (!adapter.isEnabled()) {
+                state(State.ERROR, "Turn Bluetooth on", transport);
+                return false;
+            }
+        } catch (SecurityException e) {
+            state(State.ERROR, "Bluetooth permission required", transport);
+            return false;
+        }
+        return true;
     }
 
     public void stop() {
@@ -165,7 +223,8 @@ public class ObdManager {
         if (name == null) return false;
         String n = name.toLowerCase(Locale.US);
         return n.contains("vgate") || n.contains("icar") || n.contains("vlink") ||
-                n.contains("obd") || n.contains("elm") || n.contains("veepeak");
+                n.contains("obd") || n.contains("elm") || n.contains("veepeak") ||
+                n.contains("v-link") || n.contains("vlink") || n.contains("ios-vlink") || n.contains("android-vlink");
     }
 
     private String safeName(BluetoothDevice d) {
@@ -177,7 +236,7 @@ public class ObdManager {
         }
     }
 
-    private void connectClassic(BluetoothDevice device) {
+    private void connectClassic(BluetoothDevice device, boolean fallbackToBle) {
         final String name = safeName(device);
         state(State.ADAPTER_FOUND, name, "BLUETOOTH CLASSIC");
         state(State.CONNECTING, "Opening ELM327 serial link", "BLUETOOTH CLASSIC");
@@ -194,7 +253,8 @@ public class ObdManager {
                 main.postDelayed(this::sendNextCommand, 250);
             } catch (Exception e) {
                 closeClassic();
-                main.post(() -> startBleScan());
+                if (fallbackToBle) main.post(() -> startBleScan());
+                else state(State.ERROR, "Could not open paired BT 3.0 adapter", "BLUETOOTH CLASSIC");
             }
         });
     }
@@ -210,6 +270,21 @@ public class ObdManager {
                 }
             } catch (Exception e) {
                 if (!stopped) state(State.ERROR, "Classic Bluetooth link lost", transportName);
+            }
+        });
+    }
+
+    private void startWifiReader() {
+        io.execute(() -> {
+            byte[] buf = new byte[512];
+            try {
+                while (!stopped && wifiIn != null) {
+                    int n = wifiIn.read(buf);
+                    if (n < 0) break;
+                    if (n > 0) onBytes(buf, n);
+                }
+            } catch (Exception e) {
+                if (!stopped) state(State.ERROR, "Wi-Fi OBD link lost", "WIFI");
             }
         });
     }
@@ -373,6 +448,18 @@ public class ObdManager {
             });
             return;
         }
+        if (wifiOut != null) {
+            io.execute(() -> {
+                try {
+                    wifiOut.write(data);
+                    wifiOut.flush();
+                } catch (Exception e) {
+                    commandInFlight = false;
+                    state(State.ERROR, "Wi-Fi OBD write failed", "WIFI");
+                }
+            });
+            return;
+        }
         if (gatt != null && bleWrite != null) {
             try {
                 bleWrite.setValue(data);
@@ -471,6 +558,7 @@ public class ObdManager {
     private void closeConnections(boolean stopScan) {
         if (stopScan) stopBleScan();
         closeClassic();
+        closeWifi();
         try {
             if (gatt != null) {
                 gatt.disconnect();
@@ -483,6 +571,15 @@ public class ObdManager {
         bleNotify = null;
         commandInFlight = false;
         elmReady = false;
+    }
+
+    private void closeWifi() {
+        try { if (wifiIn != null) wifiIn.close(); } catch (Exception ignored) {}
+        try { if (wifiOut != null) wifiOut.close(); } catch (Exception ignored) {}
+        try { if (wifiSocket != null) wifiSocket.close(); } catch (Exception ignored) {}
+        wifiIn = null;
+        wifiOut = null;
+        wifiSocket = null;
     }
 
     private void closeClassic() {
