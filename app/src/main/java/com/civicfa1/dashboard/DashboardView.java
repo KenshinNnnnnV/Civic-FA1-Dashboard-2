@@ -154,121 +154,122 @@ public class DashboardView extends View {
     }
 
     private void drawStreet(Canvas c, float w, float h) {
-        float contentTop = 92;
-        float navTop = h - 100;
+        float navTop = h - 100f;
+        float contentTop = 92f;
 
-        RectF center = new RectF(w * 0.30f, contentTop + 20, w * 0.70f, navTop - 85);
+        RectF center = new RectF(w * 0.30f, contentTop + 10f, w * 0.70f, 355f);
         drawArcGauge(c, center, speed, 0, 160, true);
 
-        text(c, String.valueOf(Math.round(speed)), center.centerX(), center.centerY() + 30,
-                110, TEXT, Paint.Align.CENTER, true);
-        text(c, "km/h", center.centerX(), center.centerY() + 70,
-                28, MUTED, Paint.Align.CENTER, false);
+        text(c, String.valueOf(Math.round(speed)), center.centerX(), center.centerY() + 25f,
+                104, TEXT, Paint.Align.CENTER, true);
+        text(c, "km/h", center.centerX(), center.centerY() + 62f,
+                26, MUTED, Paint.Align.CENTER, false);
 
-        drawLargeMetric(c, 35, 370, w * 0.28f, 600, "COOLANT",
+        drawLargeMetric(c, 35, 350, w * 0.28f, 505, "COOLANT",
                 String.format(Locale.US, "%.0f", coolant), "°C", 50, 130, coolant);
 
-        drawLargeMetric(c, w * 0.72f, 370, w - 35, 600, "VOLTAGE",
+        drawLargeMetric(c, w * 0.72f, 350, w - 35, 505, "VOLTAGE",
                 String.format(Locale.US, "%.1f", voltage), "V", 10, 16, voltage);
 
-        drawSmallMetric(c, 35, 615, w * 0.34f, navTop - 10, "FUEL LEVEL",
+        drawSmallMetric(c, 35, 520, w * 0.34f, navTop - 10, "FUEL LEVEL",
                 String.format(Locale.US, "%.0f", fuel), "%", fuel / 100f);
 
-        drawSmallMetric(c, w * 0.35f, 615, w * 0.66f, navTop - 10, "TRIP A",
+        drawSmallMetric(c, w * 0.35f, 520, w * 0.66f, navTop - 10, "TRIP A",
                 String.format(Locale.US, "%.1f", trip), "km", 0.68f);
 
-        drawSmallMetric(c, w * 0.67f, 615, w - 35, navTop - 10, "LOAD",
+        drawSmallMetric(c, w * 0.67f, 520, w - 35, navTop - 10, "LOAD",
                 String.format(Locale.US, "%.0f", load), "%", load / 100f);
     }
 
     private void drawSport(Canvas c, float w, float h) {
-        float navTop = h - 100;
+        float navTop = h - 100f;
 
         drawShiftLights(c, w, 91);
 
-        RectF gauge = new RectF(w * 0.30f, 118, w * 0.70f, navTop - 175);
+        RectF gauge = new RectF(w * 0.30f, 112, w * 0.70f, 360);
         drawArcGauge(c, gauge, rpm, 0, 8000, false);
 
-        text(c, String.valueOf(Math.round(rpm)), gauge.centerX(), gauge.centerY() + 28,
-                90, TEXT, Paint.Align.CENTER, true);
-        text(c, "RPM", gauge.centerX(), gauge.centerY() + 67,
-                27, MUTED, Paint.Align.CENTER, false);
+        text(c, String.valueOf(Math.round(rpm)), gauge.centerX(), gauge.centerY() + 18,
+                84, TEXT, Paint.Align.CENTER, true);
+        text(c, "RPM", gauge.centerX(), gauge.centerY() + 54,
+                24, MUTED, Paint.Align.CENTER, false);
 
-        text(c, String.valueOf(Math.round(speed)), gauge.centerX(), navTop - 200,
-                76, TEXT, Paint.Align.CENTER, true);
-        text(c, "km/h", gauge.centerX() + 88, navTop - 190,
-                25, MUTED, Paint.Align.LEFT, false);
+        text(c, String.valueOf(Math.round(speed)), gauge.centerX(), 405,
+                68, TEXT, Paint.Align.CENTER, true);
+        text(c, "km/h", gauge.centerX() + 84, 396,
+                22, MUTED, Paint.Align.LEFT, false);
 
-        drawLargeMetric(c, 35, 330, w * 0.28f, 565, "COOLANT",
+        drawLargeMetric(c, 35, 315, w * 0.28f, 500, "COOLANT",
                 String.format(Locale.US, "%.0f", coolant), "°C", 50, 130, coolant);
 
-        drawLargeMetric(c, w * 0.72f, 330, w - 35, 565, "VOLTAGE",
+        drawLargeMetric(c, w * 0.72f, 315, w - 35, 500, "VOLTAGE",
                 String.format(Locale.US, "%.1f", voltage), "V", 10, 16, voltage);
 
-        drawSmallMetric(c, 35, 580, w * 0.34f, navTop - 10, "THROTTLE",
+        drawSmallMetric(c, 35, 515, w * 0.34f, navTop - 10, "THROTTLE",
                 String.format(Locale.US, "%.0f", throttle), "%", throttle / 100f);
 
-        drawSmallMetric(c, w * 0.35f, 580, w * 0.66f, navTop - 10, "LOAD",
+        drawSmallMetric(c, w * 0.35f, 515, w * 0.66f, navTop - 10, "LOAD",
                 String.format(Locale.US, "%.0f", load), "%", load / 100f);
 
-        drawSmallMetric(c, w * 0.67f, 580, w - 35, navTop - 10, "INTAKE",
+        drawSmallMetric(c, w * 0.67f, 515, w - 35, navTop - 10, "INTAKE",
                 String.format(Locale.US, "%.0f", intake), "°C", Math.min(1f, intake / 80f));
     }
 
     private void drawDiagnostics(Canvas c, float w, float h) {
-        float navTop = h - 100;
+        float navTop = h - 100f;
 
-        drawStatusCard(c, 35, 108, w * 0.49f, 250, "OBD CONNECTION", "CONNECTED",
-                "Protocol: ISO 15765-4 (CAN)\nResponse Time: 12 ms");
+        drawStatusCard(c, 35, 100, w * 0.49f, 220, "OBD CONNECTION", "CONNECTED",
+                "Protocol: ISO 15765-4 (CAN)
+Response Time: 12 ms");
 
-        drawStatusCard(c, w * 0.51f, 108, w - 35, 250, "ECU STATUS", "OK",
-                "ECU: PGM-FI (Honda)\nReadiness: 8 / 8 Complete");
+        drawStatusCard(c, w * 0.51f, 100, w - 35, 220, "ECU STATUS", "OK",
+                "ECU: PGM-FI (Honda)
+Readiness: 8 / 8 Complete");
 
-        float gap = 14;
+        float gap = 12;
         float x = 35;
         float width = (w - 70 - gap * 4) / 5f;
-        drawSmallMetric(c, x, 268, x + width, 410, "BATTERY",
+        drawSmallMetric(c, x, 235, x + width, 350, "BATTERY",
                 String.format(Locale.US, "%.1f", voltage), "V", voltage / 16f);
         x += width + gap;
-        drawSmallMetric(c, x, 268, x + width, 410, "COOLANT",
+        drawSmallMetric(c, x, 235, x + width, 350, "COOLANT",
                 String.format(Locale.US, "%.0f", coolant), "°C", coolant / 130f);
         x += width + gap;
-        drawSmallMetric(c, x, 268, x + width, 410, "INTAKE",
+        drawSmallMetric(c, x, 235, x + width, 350, "INTAKE",
                 String.format(Locale.US, "%.0f", intake), "°C", intake / 80f);
         x += width + gap;
-        drawSmallMetric(c, x, 268, x + width, 410, "THROTTLE",
+        drawSmallMetric(c, x, 235, x + width, 350, "THROTTLE",
                 String.format(Locale.US, "%.0f", throttle), "%", throttle / 100f);
         x += width + gap;
-        drawSmallMetric(c, x, 268, x + width, 410, "ENGINE LOAD",
+        drawSmallMetric(c, x, 235, x + width, 350, "ENGINE LOAD",
                 String.format(Locale.US, "%.0f", load), "%", load / 100f);
 
-        panel(c, 35, 430, w * 0.30f, navTop - 10);
-        text(c, "FAULT CODES (DTC)", 60, 462, 19, TEXT, Paint.Align.LEFT, true);
-        p.setColor(GREEN);
+        panel(c, 35, 365, w * 0.30f, navTop - 10);
+        text(c, "FAULT CODES (DTC)", 60, 395, 18, TEXT, Paint.Align.LEFT, true);
         stroke.setColor(GREEN);
         stroke.setStrokeWidth(4);
-        c.drawCircle(85, 535, 28, stroke);
-        c.drawLine(72, 535, 82, 545, stroke);
-        c.drawLine(82, 545, 100, 522, stroke);
-        text(c, "NO FAULT CODES", 125, 544, 25, GREEN, Paint.Align.LEFT, true);
-        text(c, "System is operating normally.", 60, 585, 15, MUTED, Paint.Align.LEFT, false);
+        c.drawCircle(85, 465, 26, stroke);
+        c.drawLine(73, 465, 83, 475, stroke);
+        c.drawLine(83, 475, 100, 452, stroke);
+        text(c, "NO FAULT CODES", 125, 472, 22, GREEN, Paint.Align.LEFT, true);
+        text(c, "System is operating normally.", 60, 515, 14, MUTED, Paint.Align.LEFT, false);
 
-        panel(c, w * 0.31f, 430, w * 0.66f, navTop - 10);
-        text(c, "READINESS MONITORS", w * 0.33f, 462, 19, TEXT, Paint.Align.LEFT, true);
-        text(c, "8 / 8 COMPLETE", w * 0.33f, 492, 20, GREEN, Paint.Align.LEFT, true);
+        panel(c, w * 0.31f, 365, w * 0.66f, navTop - 10);
+        text(c, "READINESS MONITORS", w * 0.33f, 395, 18, TEXT, Paint.Align.LEFT, true);
+        text(c, "8 / 8 COMPLETE", w * 0.33f, 424, 19, GREEN, Paint.Align.LEFT, true);
         String[] checks = {"Misfire Monitor", "Fuel System", "Catalyst Monitor",
                 "Oxygen Sensor", "Evaporative System", "EGR System"};
         for (int i = 0; i < checks.length; i++) {
             float cx = w * 0.33f + (i % 2) * 175;
-            float cy = 535 + (i / 2) * 34;
+            float cy = 463 + (i / 2) * 31;
             p.setColor(GREEN);
             c.drawCircle(cx, cy, 7, p);
             text(c, "✓", cx, cy + 5, 13, BG, Paint.Align.CENTER, true);
-            text(c, checks[i], cx + 17, cy + 5, 13, TEXT, Paint.Align.LEFT, false);
+            text(c, checks[i], cx + 17, cy + 5, 12, TEXT, Paint.Align.LEFT, false);
         }
 
-        panel(c, w * 0.67f, 430, w - 35, navTop - 10);
-        text(c, "LIVE SENSOR DATA", w * 0.69f, 462, 19, TEXT, Paint.Align.LEFT, true);
+        panel(c, w * 0.67f, 365, w - 35, navTop - 10);
+        text(c, "LIVE SENSOR DATA", w * 0.69f, 395, 18, TEXT, Paint.Align.LEFT, true);
         String[][] rows = {
                 {"RPM", String.format(Locale.US, "%.0f rpm", rpm)},
                 {"Vehicle Speed", String.format(Locale.US, "%.0f km/h", speed)},
@@ -278,11 +279,11 @@ public class DashboardView extends View {
                 {"Voltage", String.format(Locale.US, "%.1f V", voltage)}
         };
         for (int i = 0; i < rows.length; i++) {
-            float y = 498 + i * 27;
-            text(c, rows[i][0], w * 0.69f, y, 13, MUTED, Paint.Align.LEFT, false);
-            text(c, rows[i][1], w - 58, y, 13, TEXT, Paint.Align.RIGHT, true);
+            float y = 430 + i * 26;
+            text(c, rows[i][0], w * 0.69f, y, 12, MUTED, Paint.Align.LEFT, false);
+            text(c, rows[i][1], w - 58, y, 12, TEXT, Paint.Align.RIGHT, true);
             p.setColor(Color.rgb(40, 50, 55));
-            c.drawRect(w * 0.69f, y + 8, w - 58, y + 9, p);
+            c.drawRect(w * 0.69f, y + 7, w - 58, y + 8, p);
         }
     }
 
@@ -374,8 +375,8 @@ public class DashboardView extends View {
                                  float min, float max, float current) {
         panel(c, l, t, r, b);
         text(c, title, l + 28, t + 44, 21, MUTED, Paint.Align.LEFT, true);
-        text(c, value, l + 28, t + 126, 72, TEXT, Paint.Align.LEFT, true);
-        text(c, unit, r - 38, t + 113, 31, TEXT, Paint.Align.RIGHT, false);
+        text(c, value, l + 28, t + Math.min(108, (b - t) * 0.58f), 58, TEXT, Paint.Align.LEFT, true);
+        text(c, unit, r - 38, t + Math.min(102, (b - t) * 0.54f), 26, TEXT, Paint.Align.RIGHT, false);
 
         float frac = Math.max(0, Math.min(1, (current - min) / (max - min)));
         progress(c, l + 28, b - 55, r - 28, b - 43, frac);

@@ -1,4 +1,4 @@
-# Civic FA1 Dashboard v0.2
+# Civic FA1 Dashboard v0.2.1
 
 Полноэкранная тестовая версия интерфейса для Android-магнитолы Honda Civic FA1.
 
@@ -23,6 +23,13 @@
 Push в `main` автоматически запускает GitHub Actions.
 После успешной сборки скачайте artifact:
 
-`Civic-FA1-Dashboard-v0.2-APK`
+`Civic-FA1-Dashboard-v0.2.1-APK`
 
 Внутри будет `app-debug.apk`.
+
+## v0.2.1
+
+- исправлена геометрия экранов под 1280×720;
+- увеличена полезная высота нижних карточек;
+- переразложены панели Diagnostics;
+- уменьшен риск наложений элементов.
