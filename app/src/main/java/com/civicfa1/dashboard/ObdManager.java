@@ -94,7 +94,9 @@ public class ObdManager {
     private int initIndex = 0;
     private int pollIndex = 0;
     private boolean elmReady = false;
+    private boolean ecuVerified = false;
     private boolean commandInFlight = false;
+    private int consecutiveTimeouts = 0;
     private String transportName = "SIMULATOR";
 
     private final String[] initCommands = new String[] {
@@ -413,6 +415,8 @@ public class ObdManager {
         initIndex = 0;
         pollIndex = 0;
         elmReady = false;
+        ecuVerified = false;
+        consecutiveTimeouts = 0;
         commandInFlight = false;
         currentCommand = null;
     }
@@ -423,10 +427,7 @@ public class ObdManager {
         if (initIndex < initCommands.length) {
             cmd = initCommands[initIndex++];
         } else {
-            if (!elmReady) {
-                elmReady = true;
-                state(State.ECU_CONNECTED, "Honda ECU responding", transportName);
-            }
+            if (!elmReady) elmReady = true;
             cmd = pollCommands[pollIndex++ % pollCommands.length];
         }
         sendCommand(cmd);
@@ -436,6 +437,7 @@ public class ObdManager {
         currentCommand = cmd;
         commandInFlight = true;
         byte[] data = (cmd + "\r").getBytes(StandardCharsets.US_ASCII);
+        main.postDelayed(() -> onCommandTimeout(cmd), 1800);
         if (classicOut != null) {
             io.execute(() -> {
                 try {
@@ -477,6 +479,18 @@ public class ObdManager {
         commandInFlight = false;
     }
 
+    private synchronized void onCommandTimeout(String cmd) {
+        if (stopped || !commandInFlight || currentCommand == null || !currentCommand.equals(cmd)) return;
+        commandInFlight = false;
+        rx.setLength(0);
+        consecutiveTimeouts++;
+        if (consecutiveTimeouts >= 3) {
+            state(State.ERROR, "ELM327/ECU did not respond", transportName);
+            return;
+        }
+        main.postDelayed(this::sendNextCommand, 180);
+    }
+
     private synchronized void onBytes(byte[] data, int n) {
         rx.append(new String(data, 0, n, StandardCharsets.US_ASCII));
         int prompt;
@@ -485,6 +499,7 @@ public class ObdManager {
             rx.delete(0, prompt + 1);
             String cmd = currentCommand;
             commandInFlight = false;
+            consecutiveTimeouts = 0;
             parseResponse(cmd, response);
             main.postDelayed(this::sendNextCommand, elmReady ? 85 : 140);
         }
@@ -512,6 +527,10 @@ public class ObdManager {
         String marker = "41" + pid;
         int idx = hex.indexOf(marker);
         if (idx < 0) return;
+        if (!ecuVerified) {
+            ecuVerified = true;
+            state(State.ECU_CONNECTED, "ECU responding", transportName);
+        }
         int pos = idx + marker.length();
         try {
             int a = readByte(hex, pos);
@@ -571,6 +590,8 @@ public class ObdManager {
         bleNotify = null;
         commandInFlight = false;
         elmReady = false;
+        ecuVerified = false;
+        consecutiveTimeouts = 0;
     }
 
     private void closeWifi() {
