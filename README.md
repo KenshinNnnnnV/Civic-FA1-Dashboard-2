@@ -1,13 +1,13 @@
-# Civic FA1 Dashboard v0.3.1
+# Civic FA1 Dashboard v0.3.3
 
-Visual cleanup release for the Honda Civic FA1 dashboard prototype.
+Test/simulator build for 1280x720 Android head unit.
 
-Changes in v0.3.1:
-- Removes the double-number effect caused by baked values in background mockups.
-- Masks dynamic-value areas before each redraw.
-- Recreates live values programmatically with bold condensed italic typography and neon glow.
-- Adds live progress bars for coolant, voltage, fuel, throttle, load and intake temperature.
-- Cleans up Diagnostics live sensor table so only one set of values is visible.
-- Keeps Street / Sport / Diagnostics touch navigation and simulator mode.
+## v0.3.3
+- Keeps the existing visual design.
+- Sport tachometer illumination is now driven by the live RPM value.
+- Upper sequential shift-light bar reacts to RPM.
+- Shift-light colors progress green -> yellow -> red.
+- Simulator throttle/load demand is coupled to requested RPM so acceleration looks coherent.
+- All numeric values remain single live UI values; no duplicate value layer is added.
 
-OBD data is still simulated. Real adapter transport will be added after the exact adapter type is confirmed.
+Current OBD status remains simulator/test data until a real adapter transport is implemented.

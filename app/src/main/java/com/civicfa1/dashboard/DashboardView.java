@@ -7,6 +7,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.os.Handler;
 import android.os.Looper;
@@ -64,8 +65,11 @@ public class DashboardView extends View {
                 targetRpm = 900f + random.nextInt(5200);
                 targetSpeed = Math.max(0f, Math.min(135f,
                         (targetRpm - 900f) / 42f + random.nextInt(15)));
-                targetThrottle = 8f + random.nextInt(66);
-                targetLoad = 20f + random.nextInt(66);
+                // In simulator mode the "gas pedal" follows the requested RPM.
+                // Later the exact same visual logic will use real OBD RPM/throttle values.
+                float rpmDemand = Math.max(0f, Math.min(1f, (targetRpm - 900f) / 5200f));
+                targetThrottle = 8f + rpmDemand * 72f + random.nextInt(8);
+                targetLoad = 18f + rpmDemand * 68f + random.nextInt(8);
             }
 
             rpm += (targetRpm - rpm) * 0.045f;
@@ -193,55 +197,147 @@ public class DashboardView extends View {
     }
 
     private void drawStreetLiveValues(Canvas c) {
-        // Mask only the baked-in changing values, while preserving the artwork and gauges.
-        softMask(c, 523, 236, 757, 355, 18);
-        liveText(c, String.valueOf(Math.round(speed)), 640, 320, 88, WHITE, Paint.Align.CENTER);
-        text(c, "km/h", 640, 354, 24, MUTED, Paint.Align.CENTER, false);
+        // v0.3.2: backgrounds contain EMPTY data fields.
+        // One live value is drawn in each block, in the exact place where the old baked number used to be.
+        liveText(c, String.valueOf(Math.round(speed)), 640, 315, 88, WHITE, Paint.Align.CENTER);
+        text(c, "km/h", 640, 350, 24, MUTED, Paint.Align.CENTER, false);
 
-        softMask(c, 590, 423, 690, 472, 9);
-        liveText(c, String.valueOf(Math.round(rpm)), 640, 452, 28, WHITE, Paint.Align.CENTER);
-        text(c, "RPM", 640, 472, 11, MUTED, Paint.Align.CENTER, false);
+        liveText(c, String.valueOf(Math.round(rpm)), 640, 458, 29, WHITE, Paint.Align.CENTER);
+        text(c, "RPM", 640, 476, 11, MUTED, Paint.Align.CENTER, false);
 
-        drawMetric(c, 210, 425, coolant, "°C", 54, 50, 130, 145, 467, 365);
-        drawMetric(c, 1020, 425, voltage, "V", 54, 10, 16, 945, 467, 1210);
-        drawMetric(c, 205, 565, fuel, "%", 33, 0, 100, 150, 592, 375);
-        drawMetric(c, 623, 565, trip, "km", 31, 0, 500, 520, 592, 760);
-        drawMetric(c, 1030, 565, load, "%", 33, 0, 100, 945, 592, 1210);
+        drawMetric(c, 205, 410, coolant, "°C", 54, 50, 130, 55, 438, 355);
+        drawMetric(c, 1060, 410, voltage, "V", 54, 10, 16, 923, 438, 1228);
+        drawMetric(c, 190, 560, fuel, "%", 31, 0, 100, 55, 568, 408);
+
+        liveText(c, String.format(Locale.US, "%.1f", trip), 628, 558, 31, WHITE, Paint.Align.CENTER);
+        unitText(c, "km", 705, 558, 15);
+        text(c, "6.2 L/100km   |   03:14 h   |   Ø " + Math.round(speed) + " km/h",
+                640, 590, 14, MUTED, Paint.Align.CENTER, false);
+
+        drawMetric(c, 1005, 560, load, "%", 31, 0, 100, 875, 568, 1227);
     }
 
     private void drawSportLiveValues(Canvas c) {
-        softMask(c, 535, 300, 745, 405, 18);
-        liveText(c, String.valueOf(Math.round(rpm)), 640, 368, 68, WHITE, Paint.Align.CENTER);
-        text(c, "RPM", 640, 401, 22, MUTED, Paint.Align.CENTER, false);
+        // Dynamic tachometer and shift-light bar. They are driven by the SAME RPM value
+        // that is shown in the centre, so there is no fake second data source.
+        drawSportTachometerActivity(c);
 
-        softMask(c, 568, 430, 714, 493, 12);
-        liveText(c, String.valueOf(Math.round(speed)), 630, 474, 54, WHITE, Paint.Align.CENTER);
-        unitText(c, "km/h", 691, 474, 18);
+        liveText(c, String.valueOf(Math.round(rpm)), 640, 305, 68, WHITE, Paint.Align.CENTER);
+        text(c, "RPM", 640, 337, 22, MUTED, Paint.Align.CENTER, false);
 
-        drawMetric(c, 210, 425, coolant, "°C", 52, 50, 130, 90, 467, 365);
-        drawMetric(c, 1035, 425, voltage, "V", 52, 10, 16, 930, 467, 1210);
-        drawMetric(c, 200, 570, throttle, "%", 31, 0, 100, 80, 595, 390);
-        drawMetric(c, 625, 570, load, "%", 31, 0, 100, 470, 595, 790);
-        drawMetric(c, 1035, 570, intake, "°C", 31, -20, 80, 900, 595, 1210);
+        liveText(c, String.valueOf(Math.round(speed)), 625, 435, 55, WHITE, Paint.Align.CENTER);
+        unitText(c, "km/h", 700, 435, 18);
+
+        drawMetric(c, 205, 405, coolant, "°C", 52, 50, 130, 55, 420, 359);
+        drawMetric(c, 1070, 405, voltage, "V", 52, 10, 16, 912, 420, 1225);
+        drawMetric(c, 205, 530, throttle, "%", 31, 0, 100, 55, 542, 405);
+        drawMetric(c, 625, 530, load, "%", 31, 0, 100, 468, 542, 800);
+        drawMetric(c, 1025, 530, intake, "°C", 31, -20, 80, 871, 542, 1225);
+    }
+
+
+    /**
+     * Makes the Sport tachometer itself "live" without changing the screen design.
+     * The illuminated arc and the upper shift-light row are both derived from rpm.
+     */
+    private void drawSportTachometerActivity(Canvas c) {
+        float clampedRpm = Math.max(0f, Math.min(8000f, rpm));
+        float ratio = clampedRpm / 8000f;
+
+        // ---- Active tachometer ring ----
+        // Approximate the existing Sport dial geometry in the 1280x720 design canvas.
+        RectF dial = new RectF(sx(438), sy(116), sx(842), sy(520));
+        float startAngle = 145f;
+        float totalSweep = 250f;
+        float activeSweep = totalSweep * ratio;
+
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeWidth(sx(9f));
+
+        // A subtle dark pass over the full track makes the old baked illumination read as "off".
+        p.clearShadowLayer();
+        p.setColor(Color.argb(145, 4, 14, 17));
+        c.drawArc(dial, startAngle, totalSweep, false, p);
+
+        // Paint active RPM in three design-matching zones.
+        drawRpmArcZone(c, dial, startAngle, activeSweep, 0f, 0.625f,
+                Color.rgb(26, 242, 145));              // 0-5000 green
+        drawRpmArcZone(c, dial, startAngle, activeSweep, 0.625f, 0.775f,
+                Color.rgb(245, 224, 54));              // 5000-6200 yellow
+        drawRpmArcZone(c, dial, startAngle, activeSweep, 0.775f, 1.0f,
+                Color.rgb(255, 54, 50));               // 6200-8000 red
+
+        p.clearShadowLayer();
+        p.setStrokeCap(Paint.Cap.BUTT);
+        p.setStyle(Paint.Style.FILL);
+
+        // ---- Upper sequential shift-light bar ----
+        final int segmentCount = 14;
+        final float left = 366f;
+        final float right = 914f;
+        final float gap = 7f;
+        final float segW = (right - left - gap * (segmentCount - 1)) / segmentCount;
+        final float top = 82f;
+        final float bottom = 96f;
+
+        // Lights intentionally start waking up near 1800 RPM rather than at idle.
+        float shiftRatio = Math.max(0f, Math.min(1f, (clampedRpm - 1800f) / 5000f));
+        int lit = Math.round(shiftRatio * segmentCount);
+
+        for (int i = 0; i < segmentCount; i++) {
+            float l = left + i * (segW + gap);
+            RectF seg = new RectF(sx(l), sy(top), sx(l + segW), sy(bottom));
+
+            if (i < lit) {
+                int color;
+                if (i < 8) color = Color.rgb(24, 244, 148);
+                else if (i < 11) color = Color.rgb(248, 226, 57);
+                else color = Color.rgb(255, 65, 54);
+                p.setColor(color);
+                p.setShadowLayer(sx(7f), 0f, 0f, color);
+            } else {
+                // Opaque enough to hide the static "on" pixels baked into the old image.
+                p.clearShadowLayer();
+                p.setColor(Color.argb(225, 7, 18, 21));
+            }
+            c.drawRoundRect(seg, sx(3f), sx(3f), p);
+        }
+        p.clearShadowLayer();
+    }
+
+    private void drawRpmArcZone(Canvas c, RectF dial, float startAngle, float activeSweep,
+                                float zoneStartRatio, float zoneEndRatio, int color) {
+        float totalSweep = 250f;
+        float zoneStart = totalSweep * zoneStartRatio;
+        float zoneEnd = totalSweep * zoneEndRatio;
+        float visibleEnd = Math.min(activeSweep, zoneEnd);
+        if (visibleEnd <= zoneStart) return;
+
+        p.setColor(color);
+        p.setShadowLayer(sx(10f), 0f, 0f, color);
+        c.drawArc(dial, startAngle + zoneStart, visibleEnd - zoneStart, false, p);
+        p.clearShadowLayer();
     }
 
     private void drawDiagnosticsLiveValues(Canvas c) {
-        drawMetric(c, 155, 342, voltage, "V", 29, 10, 16, 90, 373, 265);
-        drawMetric(c, 392, 342, coolant, "°C", 29, 50, 130, 325, 373, 505);
-        drawMetric(c, 620, 342, intake, "°C", 29, -20, 80, 555, 373, 735);
-        drawMetric(c, 850, 342, throttle, "%", 29, 0, 100, 785, 373, 965);
-        drawMetric(c, 1080, 342, load, "%", 29, 0, 100, 1015, 373, 1195);
+        drawMetric(c, 150, 317, voltage, "V", 29, 10, 16, 50, 333, 246);
+        drawMetric(c, 395, 317, coolant, "°C", 29, 50, 130, 297, 333, 496);
+        drawMetric(c, 635, 317, intake, "°C", 29, -20, 80, 544, 333, 744);
+        drawMetric(c, 875, 317, throttle, "%", 29, 0, 100, 786, 333, 985);
+        drawMetric(c, 1120, 317, load, "%", 29, 0, 100, 1033, 333, 1230);
 
-        // Completely hide baked sensor numbers in the background and draw one clean live table.
-        softMask(c, 893, 456, 1232, 620, 8);
-        float y = 480;
-        drawSensorRow(c, "RPM", String.format(Locale.US, "%.0f rpm", rpm), y); y += 20;
-        drawSensorRow(c, "Vehicle Speed", String.format(Locale.US, "%.0f km/h", speed), y); y += 20;
-        drawSensorRow(c, "Throttle", String.format(Locale.US, "%.0f %%", throttle), y); y += 20;
-        drawSensorRow(c, "Engine Load", String.format(Locale.US, "%.0f %%", load), y); y += 20;
-        drawSensorRow(c, "Coolant", String.format(Locale.US, "%.0f °C", coolant), y); y += 20;
-        drawSensorRow(c, "Voltage", String.format(Locale.US, "%.2f V", voltage), y); y += 20;
-        drawSensorRow(c, "Intake Temp", String.format(Locale.US, "%.0f °C", intake), y); y += 20;
+        // The background table body is empty in v0.3.2.
+        // Both labels and values are drawn once from the live data model.
+        float y = 432;
+        drawSensorRow(c, "RPM", String.format(Locale.US, "%.0f rpm", rpm), y); y += 21;
+        drawSensorRow(c, "Vehicle Speed", String.format(Locale.US, "%.0f km/h", speed), y); y += 21;
+        drawSensorRow(c, "Throttle", String.format(Locale.US, "%.0f %%", throttle), y); y += 21;
+        drawSensorRow(c, "Engine Load", String.format(Locale.US, "%.0f %%", load), y); y += 21;
+        drawSensorRow(c, "Coolant", String.format(Locale.US, "%.0f °C", coolant), y); y += 21;
+        drawSensorRow(c, "Voltage", String.format(Locale.US, "%.2f V", voltage), y); y += 21;
+        drawSensorRow(c, "Intake Temp", String.format(Locale.US, "%.0f °C", intake), y); y += 21;
         drawSensorRow(c, "MAF", String.format(Locale.US, "%.1f g/s", Math.max(1.0f, rpm / 1550f)), y);
     }
 
@@ -257,10 +353,12 @@ public class DashboardView extends View {
         else if ("km".equals(unit)) value = String.format(Locale.US, "%.1f", raw);
         else value = String.format(Locale.US, "%.0f", raw);
 
-        float maskW = Math.max(95f, size * 2.2f);
-        softMask(c, x - maskW * 0.58f, y - size * 0.9f, x + maskW * 0.62f, y + size * 0.18f, 7);
+        // IMPORTANT: no cover/softMask here. The background is already clean.
+        // This is the single live number for this card.
         liveText(c, value, x, y, size, WHITE, Paint.Align.CENTER);
-        unitText(c, unit, x + maskW * 0.34f, y - 2, size * 0.32f);
+
+        float valueWidth = Math.max(60f, size * Math.max(1.25f, value.length() * 0.58f));
+        unitText(c, unit, x + valueWidth * 0.55f, y - 2, size * 0.32f);
         progress(c, barL, barY, barR, raw, min, max);
     }
 
