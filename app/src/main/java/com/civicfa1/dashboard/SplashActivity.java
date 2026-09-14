@@ -13,6 +13,13 @@ import android.widget.ImageView;
 public class SplashActivity extends Activity {
 
     private static final long SPLASH_MS = 1700L;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+
+    private final Runnable openDashboard = () -> {
+        startActivity(new Intent(SplashActivity.this, MainActivity.class));
+        overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
+        finish();
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -29,11 +36,22 @@ public class SplashActivity extends Activity {
         );
         setContentView(image);
 
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            startActivity(new Intent(SplashActivity.this, MainActivity.class));
-            overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
-            finish();
-        }, SPLASH_MS);
+        // Timer starts in onResume so the dashboard is not launched while the app is backgrounded.
+    }
+
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        hideSystemUi();
+        handler.removeCallbacks(openDashboard);
+        handler.postDelayed(openDashboard, SPLASH_MS);
+    }
+
+    @Override
+    protected void onPause() {
+        handler.removeCallbacks(openDashboard);
+        super.onPause();
     }
 
     private void hideSystemUi() {

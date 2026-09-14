@@ -2,12 +2,13 @@ package com.civicfa1.dashboard;
 
 import android.content.Context;
 import android.graphics.*;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.MotionEvent;
 import android.view.View;
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.Locale;
 import java.util.Random;
 
@@ -39,14 +40,42 @@ public class DashboardView extends View {
 
     private final int BG = Color.rgb(5, 8, 10);
     private final int PANEL = Color.rgb(12, 17, 20);
-    private final int PANEL2 = Color.rgb(17, 23, 27);
     private final int BORDER = Color.rgb(55, 68, 74);
     private final int TEXT = Color.rgb(236, 241, 244);
     private final int MUTED = Color.rgb(150, 164, 174);
     private final int GREEN = Color.rgb(46, 235, 133);
-    private final int GREEN_DARK = Color.rgb(14, 87, 54);
     private final int YELLOW = Color.rgb(246, 211, 70);
     private final int RED = Color.rgb(245, 72, 72);
+
+    private boolean simulationRunning = false;
+
+    private final Runnable simulationTick = new Runnable() {
+        @Override
+        public void run() {
+            if (!simulationRunning) return;
+
+            if (Math.abs(rpm - targetRpm) < 120) {
+                targetRpm = 900 + random.nextInt(5300);
+                targetSpeed = Math.max(0, Math.min(130,
+                        (targetRpm - 900) / 38f + random.nextInt(10)));
+                targetThrottle = 8 + random.nextInt(65);
+                targetLoad = 20 + random.nextInt(65);
+            }
+
+            rpm += (targetRpm - rpm) * 0.07f;
+            speed += (targetSpeed - speed) * 0.055f;
+            throttle += (targetThrottle - throttle) * 0.06f;
+            load += (targetLoad - load) * 0.05f;
+
+            coolant += ((89f + (rpm > 4200 ? 3f : 0f)) - coolant) * 0.01f;
+            voltage += ((13.9f + (rpm / 8000f) * 0.4f) - voltage) * 0.03f;
+            intake += ((30f + (rpm / 8000f) * 8f) - intake) * 0.015f;
+            trip += speed / 7200f;
+
+            invalidate();
+            handler.postDelayed(this, 80);
+        }
+    };
 
     public DashboardView(Context context) {
         super(context);
@@ -54,34 +83,22 @@ public class DashboardView extends View {
         stroke.setStrokeWidth(2f);
         stroke.setColor(BORDER);
         setLayerType(View.LAYER_TYPE_SOFTWARE, null);
-        startSimulation();
     }
 
-    private void startSimulation() {
-        handler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (Math.abs(rpm - targetRpm) < 120) {
-                    targetRpm = 900 + random.nextInt(5300);
-                    targetSpeed = Math.max(0, Math.min(130, (targetRpm - 900) / 38f + random.nextInt(10)));
-                    targetThrottle = 8 + random.nextInt(65);
-                    targetLoad = 20 + random.nextInt(65);
-                }
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        if (!simulationRunning) {
+            simulationRunning = true;
+            handler.postDelayed(simulationTick, 120);
+        }
+    }
 
-                rpm += (targetRpm - rpm) * 0.07f;
-                speed += (targetSpeed - speed) * 0.055f;
-                throttle += (targetThrottle - throttle) * 0.06f;
-                load += (targetLoad - load) * 0.05f;
-
-                coolant += ((89f + (rpm > 4200 ? 3f : 0f)) - coolant) * 0.01f;
-                voltage += ((13.9f + (rpm / 8000f) * 0.4f) - voltage) * 0.03f;
-                intake += ((30f + (rpm / 8000f) * 8f) - intake) * 0.015f;
-                trip += speed / 7200f;
-
-                invalidate();
-                handler.postDelayed(this, 80);
-            }
-        }, 120);
+    @Override
+    protected void onDetachedFromWindow() {
+        simulationRunning = false;
+        handler.removeCallbacks(simulationTick);
+        super.onDetachedFromWindow();
     }
 
     @Override
@@ -143,14 +160,15 @@ public class DashboardView extends View {
         text(c, title, w * 0.5f, 36, 29, GREEN, Paint.Align.CENTER, true);
         text(c, subtitle, w * 0.5f, 61, 12, MUTED, Paint.Align.CENTER, false);
 
-        p.setColor(GREEN);
+        p.setColor(YELLOW);
         c.drawCircle(w - 355, 30, 7, p);
-        text(c, mode == Mode.DIAGNOSTICS ? "OBD: CONNECTED" : "OBD: SIMULATOR",
-                w - 335, 36, 18, mode == Mode.DIAGNOSTICS ? GREEN : TEXT, Paint.Align.LEFT, true);
-        text(c, mode == Mode.DIAGNOSTICS ? "ALL SYSTEMS ONLINE" : "TEST DATA ACTIVE",
+        text(c, "OBD: SIMULATOR",
+                w - 335, 36, 18, TEXT, Paint.Align.LEFT, true);
+        text(c, "TEST DATA ACTIVE",
                 w - 335, 60, 12, MUTED, Paint.Align.LEFT, false);
 
-        text(c, "10:24", w - 62, 38, 22, TEXT, Paint.Align.RIGHT, false);
+        String clock = new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date());
+        text(c, clock, w - 62, 38, 22, TEXT, Paint.Align.RIGHT, false);
     }
 
     private void drawStreet(Canvas c, float w, float h) {
@@ -218,11 +236,11 @@ public class DashboardView extends View {
     private void drawDiagnostics(Canvas c, float w, float h) {
         float navTop = h - 100f;
 
-        drawStatusCard(c, 35, 100, w * 0.49f, 220, "OBD CONNECTION", "CONNECTED",
-                "Protocol: ISO 15765-4 (CAN)\nResponse Time: 12 ms");
+        drawStatusCard(c, 35, 100, w * 0.49f, 220, "OBD CONNECTION", "SIMULATOR",
+                "Adapter: not connected\nLive data: disabled");
 
-        drawStatusCard(c, w * 0.51f, 100, w - 35, 220, "ECU STATUS", "OK",
-                "ECU: PGM-FI (Honda)\nReadiness: 8 / 8 Complete");
+        drawStatusCard(c, w * 0.51f, 100, w - 35, 220, "ECU STATUS", "TEST MODE",
+                "ECU profile: Honda PGM-FI\nValues: simulated");
 
         float gap = 12;
         float x = 35;
@@ -249,12 +267,12 @@ public class DashboardView extends View {
         c.drawCircle(85, 465, 26, stroke);
         c.drawLine(73, 465, 83, 475, stroke);
         c.drawLine(83, 475, 100, 452, stroke);
-        text(c, "NO FAULT CODES", 125, 472, 22, GREEN, Paint.Align.LEFT, true);
-        text(c, "System is operating normally.", 60, 515, 14, MUTED, Paint.Align.LEFT, false);
+        text(c, "NO TEST FAULTS", 125, 472, 22, GREEN, Paint.Align.LEFT, true);
+        text(c, "Simulator only — ECU not queried.", 60, 515, 14, MUTED, Paint.Align.LEFT, false);
 
         panel(c, w * 0.31f, 365, w * 0.66f, navTop - 10);
         text(c, "READINESS MONITORS", w * 0.33f, 395, 18, TEXT, Paint.Align.LEFT, true);
-        text(c, "8 / 8 COMPLETE", w * 0.33f, 424, 19, GREEN, Paint.Align.LEFT, true);
+        text(c, "SIMULATED", w * 0.33f, 424, 19, GREEN, Paint.Align.LEFT, true);
         String[] checks = {"Misfire Monitor", "Fuel System", "Catalyst Monitor",
                 "Oxygen Sensor", "Evaporative System", "EGR System"};
         for (int i = 0; i < checks.length; i++) {
@@ -288,12 +306,12 @@ public class DashboardView extends View {
     private void drawStatusCard(Canvas c, float l, float t, float r, float b,
                                 String title, String value, String details) {
         panel(c, l, t, r, b);
-        text(c, title, l + 24, t + 34, 18, MUTED, Paint.Align.LEFT, false);
-        text(c, value, l + 24, t + 72, 27, GREEN, Paint.Align.LEFT, true);
+        text(c, title, l + 24, t + 28, 16, MUTED, Paint.Align.LEFT, false);
+        text(c, value, l + 24, t + 59, 24, GREEN, Paint.Align.LEFT, true);
 
         String[] lines = details.split("\\n");
         for (int i = 0; i < lines.length; i++) {
-            text(c, lines[i], l + 24, t + 104 + i * 24, 14, TEXT, Paint.Align.LEFT, false);
+            text(c, lines[i], l + 24, t + 84 + i * 19, 12, TEXT, Paint.Align.LEFT, false);
         }
     }
 
@@ -372,23 +390,29 @@ public class DashboardView extends View {
                                  String title, String value, String unit,
                                  float min, float max, float current) {
         panel(c, l, t, r, b);
-        text(c, title, l + 28, t + 44, 21, MUTED, Paint.Align.LEFT, true);
-        text(c, value, l + 28, t + Math.min(108, (b - t) * 0.58f), 58, TEXT, Paint.Align.LEFT, true);
-        text(c, unit, r - 38, t + Math.min(102, (b - t) * 0.54f), 26, TEXT, Paint.Align.RIGHT, false);
+        text(c, title, l + 28, t + 34, 18, MUTED, Paint.Align.LEFT, true);
+        text(c, value, l + 28, t + 91, 52, TEXT, Paint.Align.LEFT, true);
+        text(c, unit, r - 38, t + 84, 24, TEXT, Paint.Align.RIGHT, false);
 
         float frac = Math.max(0, Math.min(1, (current - min) / (max - min)));
-        progress(c, l + 28, b - 55, r - 28, b - 43, frac);
-        text(c, String.format(Locale.US, "%.0f", min), l + 28, b - 18, 13, MUTED, Paint.Align.LEFT, false);
-        text(c, String.format(Locale.US, "%.0f", max), r - 28, b - 18, 13, MUTED, Paint.Align.RIGHT, false);
+        progress(c, l + 28, b - 42, r - 28, b - 32, frac);
+        text(c, String.format(Locale.US, "%.0f", min), l + 28, b - 11, 12, MUTED, Paint.Align.LEFT, false);
+        text(c, String.format(Locale.US, "%.0f", max), r - 28, b - 11, 12, MUTED, Paint.Align.RIGHT, false);
     }
 
     private void drawSmallMetric(Canvas c, float l, float t, float r, float b,
                                  String title, String value, String unit, float frac) {
         panel(c, l, t, r, b);
-        text(c, title, l + 24, t + 33, 16, MUTED, Paint.Align.LEFT, false);
-        text(c, value, l + 24, t + 76, 38, TEXT, Paint.Align.LEFT, true);
-        text(c, unit, r - 28, t + 71, 20, TEXT, Paint.Align.RIGHT, false);
-        progress(c, l + 24, b - 28, r - 24, b - 18, frac);
+        float boxH = b - t;
+        float titleY = t + Math.min(28f, boxH * 0.30f);
+        float valueY = t + Math.min(62f, boxH * 0.68f);
+        float unitY = valueY - 3f;
+        float valueSize = boxH < 100f ? 32f : 36f;
+
+        text(c, title, l + 24, titleY, 15, MUTED, Paint.Align.LEFT, false);
+        text(c, value, l + 24, valueY, valueSize, TEXT, Paint.Align.LEFT, true);
+        text(c, unit, r - 28, unitY, 18, TEXT, Paint.Align.RIGHT, false);
+        progress(c, l + 24, b - 20, r - 24, b - 12, frac);
     }
 
     private void drawBottomTabs(Canvas c, float w, float h) {
@@ -457,7 +481,7 @@ public class DashboardView extends View {
         float h = getHeight();
         float w = getWidth();
 
-        if (e.getY() >= h - 120) {
+        if (e.getY() >= h - 100) {
             if (e.getX() < w / 3f) mode = Mode.STREET;
             else if (e.getX() < w * 2f / 3f) mode = Mode.SPORT;
             else mode = Mode.DIAGNOSTICS;
