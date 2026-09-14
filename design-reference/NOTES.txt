@@ -1,4 +1,4 @@
-Design references for v0.4.1.
-Runtime live values are NOT trusted from these static reference images.
-The Android code paints the changing values from real OBD telemetry only.
-When ECU is not connected, the runtime shows -- / N/A.
+These images are visual references only. v0.5.0 does NOT use their baked sensor values.
+The application renders gauges, cards, status, sensor values, bars and navigation as native Canvas widgets.
+Background assets are sampled only for decorative city/car artwork.
+Target canvas: 1280x720 landscape.
