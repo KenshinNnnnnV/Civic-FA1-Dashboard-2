@@ -219,12 +219,10 @@ public class DashboardView extends View {
         float navTop = h - 100f;
 
         drawStatusCard(c, 35, 100, w * 0.49f, 220, "OBD CONNECTION", "CONNECTED",
-                "Protocol: ISO 15765-4 (CAN)
-Response Time: 12 ms");
+                "Protocol: ISO 15765-4 (CAN)\nResponse Time: 12 ms");
 
         drawStatusCard(c, w * 0.51f, 100, w - 35, 220, "ECU STATUS", "OK",
-                "ECU: PGM-FI (Honda)
-Readiness: 8 / 8 Complete");
+                "ECU: PGM-FI (Honda)\nReadiness: 8 / 8 Complete");
 
         float gap = 12;
         float x = 35;
