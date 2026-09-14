@@ -1,17 +1,39 @@
-# Civic FA1 Dashboard Test
+# Civic FA1 Dashboard v0.3.0
 
-Тестовый Android-проект для Honda Civic FA1.
+Android dashboard prototype for a Honda Civic FA1 / R18A, optimized for a 1280×720 landscape head unit.
 
-## Что делает
-- landscape / fullscreen;
-- макет под 1280×720;
-- тестовые RPM, скорость, температура ОЖ и напряжение;
-- без OBD и без управления ECU.
+## v0.3.0 visual baseline
 
-## Как собрать APK
-1. Загрузить содержимое проекта в корень репозитория.
-2. Открыть вкладку **Actions**.
-3. Выбрать **Build Android APK**.
-4. Запустить workflow или просто сделать push в `main`.
-5. После успешной сборки скачать artifact `Civic-FA1-Dashboard-Test-APK`.
-6. Внутри будет `app-debug.apk`.
+This version locks the new premium neon visual language for the project:
+
+- dark night-city / graphite background
+- neon green/cyan accent system
+- Honda Civic FA1 hero artwork
+- Street, Sport and Diagnostics modes with consistent bottom navigation
+- new premium startup/splash screen
+- simulator mode clearly identified as non-live data
+- dynamic simulated values continue to run on top of the new visual layer
+- touchable metric cards open detail overlays
+- Diagnostics OBD/ECU/DTC/readiness/live-sensor cards are touchable
+
+## Modes
+
+### STREET
+Large speed display, RPM, coolant, voltage, fuel, trip and engine load.
+
+### SPORT
+Large RPM gauge, speed, coolant, voltage, throttle, load and intake temperature.
+
+### DIAGNOSTICS
+Simulator OBD status, ECU status, metric cards, DTC area, readiness monitor area and live sensor list.
+
+## Important
+
+v0.3.0 still uses simulated values. It does not claim to be connected to the vehicle ECU.
+The real OBD transport will be added after the exact adapter type is confirmed (Bluetooth Classic, BLE, Wi‑Fi or USB).
+
+## Build
+
+GitHub Actions builds a debug APK on every push to `main` and uploads the artifact as:
+
+`Civic-FA1-Dashboard-v0.3.0-APK`
