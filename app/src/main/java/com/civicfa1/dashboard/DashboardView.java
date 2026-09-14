@@ -7,6 +7,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.Typeface;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.MotionEvent;
@@ -127,80 +128,140 @@ public class DashboardView extends View {
     private float sy(float y) { return y * getHeight() / 720f; }
 
     private void cover(Canvas c, float l, float t, float r, float b, float radius) {
-        p.setColor(Color.argb(235, 5, 13, 15));
+        p.setShader(null);
+        p.clearShadowLayer();
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(246, 4, 12, 15));
+        c.drawRoundRect(new RectF(sx(l), sy(t), sx(r), sy(b)), sx(radius), sx(radius), p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(sx(1.2f));
+        p.setColor(Color.argb(120, 60, 215, 214));
+        c.drawRoundRect(new RectF(sx(l), sy(t), sx(r), sy(b)), sx(radius), sx(radius), p);
+        p.setStyle(Paint.Style.FILL);
+    }
+
+    private void softMask(Canvas c, float l, float t, float r, float b, float radius) {
+        p.setShader(null);
+        p.clearShadowLayer();
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(238, 4, 11, 14));
         c.drawRoundRect(new RectF(sx(l), sy(t), sx(r), sy(b)), sx(radius), sx(radius), p);
     }
 
     private void text(Canvas c, String s, float x, float y, float size, int color, Paint.Align align, boolean bold) {
         p.setShader(null);
+        p.clearShadowLayer();
         p.setColor(color);
         p.setTextAlign(align);
         p.setTextSize(sx(size));
-        p.setTypeface(android.graphics.Typeface.create("sans-serif", bold ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL));
+        p.setTypeface(Typeface.create("sans-serif", bold ? Typeface.BOLD : Typeface.NORMAL));
         c.drawText(s, sx(x), sy(y), p);
     }
 
+    private void liveText(Canvas c, String s, float x, float y, float size, int color, Paint.Align align) {
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(color);
+        p.setTextAlign(align);
+        p.setTextSize(sx(size));
+        p.setTypeface(Typeface.create("sans-serif-condensed", Typeface.BOLD_ITALIC));
+        p.setShadowLayer(sx(6f), 0f, 0f, Color.argb(185, 30, 245, 190));
+        c.drawText(s, sx(x), sy(y), p);
+        p.clearShadowLayer();
+    }
+
+    private void unitText(Canvas c, String s, float x, float y, float size) {
+        p.setShader(null);
+        p.clearShadowLayer();
+        p.setColor(Color.rgb(205, 221, 228));
+        p.setTextAlign(Paint.Align.LEFT);
+        p.setTextSize(sx(size));
+        p.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
+        c.drawText(s, sx(x), sy(y), p);
+    }
+
+    private void progress(Canvas c, float l, float y, float r, float value, float min, float max) {
+        float ratio = Math.max(0f, Math.min(1f, (value - min) / (max - min)));
+        p.clearShadowLayer();
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(35, 57, 68));
+        c.drawRoundRect(new RectF(sx(l), sy(y), sx(r), sy(y + 8)), sx(4), sx(4), p);
+        p.setColor(GREEN);
+        p.setShadowLayer(sx(5f), 0, 0, Color.argb(140, 32, 255, 191));
+        c.drawRoundRect(new RectF(sx(l), sy(y), sx(l + (r - l) * ratio), sy(y + 8)), sx(4), sx(4), p);
+        p.clearShadowLayer();
+    }
+
     private void drawStreetLiveValues(Canvas c) {
-        cover(c, 495, 215, 785, 365, 18);
-        text(c, String.valueOf(Math.round(speed)), 640, 315, 92, WHITE, Paint.Align.CENTER, true);
-        text(c, "km/h", 640, 354, 25, MUTED, Paint.Align.CENTER, false);
+        // Mask only the baked-in changing values, while preserving the artwork and gauges.
+        softMask(c, 523, 236, 757, 355, 18);
+        liveText(c, String.valueOf(Math.round(speed)), 640, 320, 88, WHITE, Paint.Align.CENTER);
+        text(c, "km/h", 640, 354, 24, MUTED, Paint.Align.CENTER, false);
 
-        cover(c, 565, 405, 715, 474, 12);
-        text(c, String.valueOf(Math.round(rpm)), 640, 451, 30, WHITE, Paint.Align.CENTER, true);
-        text(c, "RPM", 640, 474, 12, MUTED, Paint.Align.CENTER, false);
+        softMask(c, 590, 423, 690, 472, 9);
+        liveText(c, String.valueOf(Math.round(rpm)), 640, 452, 28, WHITE, Paint.Align.CENTER);
+        text(c, "RPM", 640, 472, 11, MUTED, Paint.Align.CENTER, false);
 
-        metricValue(c, 192, 408, String.format(Locale.US, "%.0f", coolant), "°C", 58);
-        metricValue(c, 1024, 408, String.format(Locale.US, "%.1f", voltage), "V", 58);
-        metricValue(c, 180, 558, String.format(Locale.US, "%.0f", fuel), "%", 34);
-        metricValue(c, 630, 558, String.format(Locale.US, "%.1f", trip), "km", 32);
-        metricValue(c, 1018, 558, String.format(Locale.US, "%.0f", load), "%", 34);
+        drawMetric(c, 210, 425, coolant, "°C", 54, 50, 130, 145, 467, 365);
+        drawMetric(c, 1020, 425, voltage, "V", 54, 10, 16, 945, 467, 1210);
+        drawMetric(c, 205, 565, fuel, "%", 33, 0, 100, 150, 592, 375);
+        drawMetric(c, 623, 565, trip, "km", 31, 0, 500, 520, 592, 760);
+        drawMetric(c, 1030, 565, load, "%", 33, 0, 100, 945, 592, 1210);
     }
 
     private void drawSportLiveValues(Canvas c) {
-        cover(c, 500, 220, 780, 375, 18);
-        text(c, String.valueOf(Math.round(rpm)), 640, 315, 70, WHITE, Paint.Align.CENTER, true);
-        text(c, "RPM", 640, 356, 24, MUTED, Paint.Align.CENTER, false);
+        softMask(c, 535, 300, 745, 405, 18);
+        liveText(c, String.valueOf(Math.round(rpm)), 640, 368, 68, WHITE, Paint.Align.CENTER);
+        text(c, "RPM", 640, 401, 22, MUTED, Paint.Align.CENTER, false);
 
-        cover(c, 560, 393, 720, 468, 14);
-        text(c, String.valueOf(Math.round(speed)), 640, 445, 58, WHITE, Paint.Align.CENTER, true);
-        text(c, "km/h", 706, 444, 20, MUTED, Paint.Align.LEFT, false);
+        softMask(c, 568, 430, 714, 493, 12);
+        liveText(c, String.valueOf(Math.round(speed)), 630, 474, 54, WHITE, Paint.Align.CENTER);
+        unitText(c, "km/h", 691, 474, 18);
 
-        metricValue(c, 195, 398, String.format(Locale.US, "%.0f", coolant), "°C", 56);
-        metricValue(c, 1025, 398, String.format(Locale.US, "%.1f", voltage), "V", 56);
-        metricValue(c, 181, 548, String.format(Locale.US, "%.0f", throttle), "%", 32);
-        metricValue(c, 628, 548, String.format(Locale.US, "%.0f", load), "%", 32);
-        metricValue(c, 1015, 548, String.format(Locale.US, "%.0f", intake), "°C", 32);
+        drawMetric(c, 210, 425, coolant, "°C", 52, 50, 130, 90, 467, 365);
+        drawMetric(c, 1035, 425, voltage, "V", 52, 10, 16, 930, 467, 1210);
+        drawMetric(c, 200, 570, throttle, "%", 31, 0, 100, 80, 595, 390);
+        drawMetric(c, 625, 570, load, "%", 31, 0, 100, 470, 595, 790);
+        drawMetric(c, 1035, 570, intake, "°C", 31, -20, 80, 900, 595, 1210);
     }
 
     private void drawDiagnosticsLiveValues(Canvas c) {
-        metricValue(c, 145, 312, String.format(Locale.US, "%.1f", voltage), "V", 30);
-        metricValue(c, 380, 312, String.format(Locale.US, "%.0f", coolant), "°C", 30);
-        metricValue(c, 600, 312, String.format(Locale.US, "%.0f", intake), "°C", 30);
-        metricValue(c, 835, 312, String.format(Locale.US, "%.0f", throttle), "%", 30);
-        metricValue(c, 1068, 312, String.format(Locale.US, "%.0f", load), "%", 30);
+        drawMetric(c, 155, 342, voltage, "V", 29, 10, 16, 90, 373, 265);
+        drawMetric(c, 392, 342, coolant, "°C", 29, 50, 130, 325, 373, 505);
+        drawMetric(c, 620, 342, intake, "°C", 29, -20, 80, 555, 373, 735);
+        drawMetric(c, 850, 342, throttle, "%", 29, 0, 100, 785, 373, 965);
+        drawMetric(c, 1080, 342, load, "%", 29, 0, 100, 1015, 373, 1195);
 
-        cover(c, 886, 418, 1230, 617, 10);
-        float y = 442;
-        drawSensorRow(c, "RPM", String.format(Locale.US, "%.0f rpm", rpm), y); y += 22;
-        drawSensorRow(c, "Vehicle Speed", String.format(Locale.US, "%.0f km/h", speed), y); y += 22;
-        drawSensorRow(c, "Throttle", String.format(Locale.US, "%.0f %%", throttle), y); y += 22;
-        drawSensorRow(c, "Engine Load", String.format(Locale.US, "%.0f %%", load), y); y += 22;
-        drawSensorRow(c, "Coolant", String.format(Locale.US, "%.0f °C", coolant), y); y += 22;
-        drawSensorRow(c, "Voltage", String.format(Locale.US, "%.2f V", voltage), y); y += 22;
-        drawSensorRow(c, "Intake Temp", String.format(Locale.US, "%.0f °C", intake), y); y += 22;
+        // Completely hide baked sensor numbers in the background and draw one clean live table.
+        softMask(c, 893, 456, 1232, 620, 8);
+        float y = 480;
+        drawSensorRow(c, "RPM", String.format(Locale.US, "%.0f rpm", rpm), y); y += 20;
+        drawSensorRow(c, "Vehicle Speed", String.format(Locale.US, "%.0f km/h", speed), y); y += 20;
+        drawSensorRow(c, "Throttle", String.format(Locale.US, "%.0f %%", throttle), y); y += 20;
+        drawSensorRow(c, "Engine Load", String.format(Locale.US, "%.0f %%", load), y); y += 20;
+        drawSensorRow(c, "Coolant", String.format(Locale.US, "%.0f °C", coolant), y); y += 20;
+        drawSensorRow(c, "Voltage", String.format(Locale.US, "%.2f V", voltage), y); y += 20;
+        drawSensorRow(c, "Intake Temp", String.format(Locale.US, "%.0f °C", intake), y); y += 20;
         drawSensorRow(c, "MAF", String.format(Locale.US, "%.1f g/s", Math.max(1.0f, rpm / 1550f)), y);
     }
 
     private void drawSensorRow(Canvas c, String label, String value, float y) {
-        text(c, label, 898, y, 13, MUTED, Paint.Align.LEFT, false);
-        text(c, value, 1210, y, 13, WHITE, Paint.Align.RIGHT, false);
+        text(c, label, 905, y, 12, MUTED, Paint.Align.LEFT, false);
+        liveText(c, value, 1212, y, 12.5f, WHITE, Paint.Align.RIGHT);
     }
 
-    private void metricValue(Canvas c, float x, float y, String value, String unit, float size) {
-        float width = size * (value.length() * 0.62f + 1.4f);
-        cover(c, x - width * 0.55f, y - size * 0.75f, x + width * 0.65f, y + size * 0.22f, 8);
-        text(c, value, x, y, size, WHITE, Paint.Align.CENTER, true);
-        text(c, unit, x + width * 0.38f, y - 2, size * 0.34f, MUTED, Paint.Align.LEFT, false);
+    private void drawMetric(Canvas c, float x, float y, float raw, String unit, float size,
+                            float min, float max, float barL, float barY, float barR) {
+        String value;
+        if ("V".equals(unit)) value = String.format(Locale.US, "%.1f", raw);
+        else if ("km".equals(unit)) value = String.format(Locale.US, "%.1f", raw);
+        else value = String.format(Locale.US, "%.0f", raw);
+
+        float maskW = Math.max(95f, size * 2.2f);
+        softMask(c, x - maskW * 0.58f, y - size * 0.9f, x + maskW * 0.62f, y + size * 0.18f, 7);
+        liveText(c, value, x, y, size, WHITE, Paint.Align.CENTER);
+        unitText(c, unit, x + maskW * 0.34f, y - 2, size * 0.32f);
+        progress(c, barL, barY, barR, raw, min, max);
     }
 
     @Override
