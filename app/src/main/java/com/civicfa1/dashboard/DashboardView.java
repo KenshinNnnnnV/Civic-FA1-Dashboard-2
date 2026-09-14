@@ -1,13 +1,11 @@
 package com.civicfa1.dashboard;
 
-import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
-import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.os.Handler;
 import android.os.Looper;
@@ -16,14 +14,18 @@ import android.view.View;
 
 import java.util.Locale;
 import java.util.Random;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
-public class DashboardView extends View {
+public class DashboardView extends View implements ObdManager.Listener {
 
     private enum Mode { STREET, SPORT, DIAGNOSTICS }
 
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Random random = new Random();
+    private final MainActivity activity;
+    private final ObdManager obdManager;
 
     private final Bitmap streetBg;
     private final Bitmap sportBg;
@@ -40,6 +42,11 @@ public class DashboardView extends View {
     private float intake = 31f;
     private float fuel = 68f;
     private float trip = 248.7f;
+    private float fuelEconomy = 6.2f;
+    private float avgSpeed = 79f;
+    private float maf = 2.1f;
+    private float tripSeconds = 3 * 3600f + 14 * 60f;
+    private long lastTickMs = 0L;
 
     private float targetRpm = 3250f;
     private float targetSpeed = 72f;
@@ -47,6 +54,10 @@ public class DashboardView extends View {
     private float targetLoad = 32f;
 
     private boolean simulationRunning = false;
+    private boolean liveConnected = false;
+    private ObdManager.State obdState = ObdManager.State.SIMULATOR;
+    private String obdDetail = "TEST MODE";
+    private String obdTransport = "SIMULATOR";
     private String overlayTitle = null;
     private String overlayValue = null;
     private String overlayBody = null;
@@ -61,34 +72,41 @@ public class DashboardView extends View {
         public void run() {
             if (!simulationRunning) return;
 
-            if (Math.abs(rpm - targetRpm) < 100f) {
-                targetRpm = 900f + random.nextInt(5200);
-                targetSpeed = Math.max(0f, Math.min(135f,
-                        (targetRpm - 900f) / 42f + random.nextInt(15)));
-                // In simulator mode the "gas pedal" follows the requested RPM.
-                // Later the exact same visual logic will use real OBD RPM/throttle values.
-                float rpmDemand = Math.max(0f, Math.min(1f, (targetRpm - 900f) / 5200f));
-                targetThrottle = 8f + rpmDemand * 72f + random.nextInt(8);
-                targetLoad = 18f + rpmDemand * 68f + random.nextInt(8);
+            long now = System.currentTimeMillis();
+            if (lastTickMs == 0L) lastTickMs = now;
+            float dtSec = Math.max(0.02f, Math.min(0.5f, (now - lastTickMs) / 1000f));
+            lastTickMs = now;
+
+            if (!liveConnected) {
+                if (Math.abs(rpm - targetRpm) < 100f) {
+                    targetRpm = 900f + random.nextInt(5200);
+                    targetSpeed = Math.max(0f, Math.min(135f,
+                            (targetRpm - 900f) / 42f + random.nextInt(15)));
+                    float rpmDemand = Math.max(0f, Math.min(1f, (targetRpm - 900f) / 5200f));
+                    targetThrottle = 8f + rpmDemand * 72f + random.nextInt(8);
+                    targetLoad = 18f + rpmDemand * 68f + random.nextInt(8);
+                }
+
+                rpm += (targetRpm - rpm) * 0.045f;
+                speed += (targetSpeed - speed) * 0.035f;
+                throttle += (targetThrottle - throttle) * 0.045f;
+                load += (targetLoad - load) * 0.04f;
+                coolant += ((89f + (rpm > 4500f ? 3f : 0f)) - coolant) * 0.008f;
+                voltage += ((13.9f + (rpm / 8000f) * 0.35f) - voltage) * 0.02f;
+                intake += ((30f + (rpm / 8000f) * 7f) - intake) * 0.012f;
+                maf = Math.max(1.0f, rpm / 1550f);
             }
 
-            rpm += (targetRpm - rpm) * 0.045f;
-            speed += (targetSpeed - speed) * 0.035f;
-            throttle += (targetThrottle - throttle) * 0.045f;
-            load += (targetLoad - load) * 0.04f;
-
-            coolant += ((89f + (rpm > 4500f ? 3f : 0f)) - coolant) * 0.008f;
-            voltage += ((13.9f + (rpm / 8000f) * 0.35f) - voltage) * 0.02f;
-            intake += ((30f + (rpm / 8000f) * 7f) - intake) * 0.012f;
-            trip += speed / 9000f;
-
+            updateTripValues(dtSec);
             invalidate();
             handler.postDelayed(this, 90);
         }
     };
 
-    public DashboardView(Context context) {
-        super(context);
+    public DashboardView(MainActivity activity) {
+        super(activity);
+        this.activity = activity;
+        this.obdManager = new ObdManager(activity, this);
         streetBg = BitmapFactory.decodeResource(getResources(), R.drawable.mode_street);
         sportBg = BitmapFactory.decodeResource(getResources(), R.drawable.mode_sport);
         diagnosticsBg = BitmapFactory.decodeResource(getResources(), R.drawable.mode_diagnostics);
@@ -100,6 +118,7 @@ public class DashboardView extends View {
         super.onAttachedToWindow();
         if (!simulationRunning) {
             simulationRunning = true;
+            lastTickMs = System.currentTimeMillis();
             handler.postDelayed(simulationTick, 120);
         }
     }
@@ -108,6 +127,7 @@ public class DashboardView extends View {
     protected void onDetachedFromWindow() {
         simulationRunning = false;
         handler.removeCallbacks(simulationTick);
+        obdManager.stop();
         super.onDetachedFromWindow();
     }
 
@@ -116,6 +136,7 @@ public class DashboardView extends View {
         super.onDraw(c);
         Bitmap bg = mode == Mode.STREET ? streetBg : mode == Mode.SPORT ? sportBg : diagnosticsBg;
         c.drawBitmap(bg, null, new RectF(0, 0, getWidth(), getHeight()), p);
+        drawTopStatus(c);
 
         if (mode == Mode.STREET) {
             drawStreetLiveValues(c);
@@ -211,7 +232,8 @@ public class DashboardView extends View {
 
         liveText(c, String.format(Locale.US, "%.1f", trip), 628, 558, 31, WHITE, Paint.Align.CENTER);
         unitText(c, "km", 705, 558, 15);
-        text(c, "6.2 L/100km   |   03:14 h   |   Ø " + Math.round(speed) + " km/h",
+        String tripTime = String.format(Locale.US, "%02d:%02d h", (int)(tripSeconds / 3600f), ((int)(tripSeconds / 60f)) % 60);
+        text(c, String.format(Locale.US, "%.1f L/100km   |   %s   |   Ø %.0f km/h", fuelEconomy, tripTime, avgSpeed),
                 640, 590, 14, MUTED, Paint.Align.CENTER, false);
 
         drawMetric(c, 1005, 560, load, "%", 31, 0, 100, 875, 568, 1227);
@@ -322,14 +344,36 @@ public class DashboardView extends View {
     }
 
     private void drawDiagnosticsLiveValues(Canvas c) {
+        // Connection and ECU cards are live UI, not baked text.
+        int stateColor = obdState == ObdManager.State.ERROR ? Color.rgb(255, 88, 74) : GREEN;
+        String connection = obdState == ObdManager.State.ECU_CONNECTED ? "CONNECTED" :
+                obdState == ObdManager.State.SEARCHING ? "SEARCHING" :
+                obdState == ObdManager.State.ADAPTER_FOUND ? "ADAPTER FOUND" :
+                obdState == ObdManager.State.CONNECTING ? "CONNECTING" :
+                obdState == ObdManager.State.ERROR ? "ERROR" : "SIMULATOR";
+        text(c, connection, 325, 145, 26, stateColor, Paint.Align.LEFT, true);
+        text(c, "Transport: " + obdTransport, 325, 174, 14, MUTED, Paint.Align.LEFT, false);
+        text(c, obdDetail, 325, 198, 13, MUTED, Paint.Align.LEFT, false);
+
+        String ecu = liveConnected ? "LIVE ECU" : "SIMULATED";
+        text(c, ecu, 738, 145, 26, liveConnected ? GREEN : MUTED, Paint.Align.LEFT, true);
+        text(c, "ECU: PGM-FI (Honda)", 738, 174, 14, MUTED, Paint.Align.LEFT, false);
+        text(c, liveConnected ? "Data source: ELM327 / Vgate" : "Data source: local simulator", 738, 198, 13, MUTED, Paint.Align.LEFT, false);
+
         drawMetric(c, 150, 317, voltage, "V", 29, 10, 16, 50, 333, 246);
         drawMetric(c, 395, 317, coolant, "°C", 29, 50, 130, 297, 333, 496);
         drawMetric(c, 635, 317, intake, "°C", 29, -20, 80, 544, 333, 744);
         drawMetric(c, 875, 317, throttle, "%", 29, 0, 100, 786, 333, 985);
         drawMetric(c, 1120, 317, load, "%", 29, 0, 100, 1033, 333, 1230);
 
-        // The background table body is empty in v0.3.2.
-        // Both labels and values are drawn once from the live data model.
+        text(c, liveConnected ? "DTC STATUS READY" : "SIMULATOR - NO TEST DTC", 125, 490, 20, GREEN, Paint.Align.LEFT, true);
+        text(c, liveConnected ? "Tap this card to add DTC read/clear next." : "No ECU trouble codes are being claimed.", 125, 525, 13, MUTED, Paint.Align.LEFT, false);
+
+        text(c, liveConnected ? "LIVE MONITORS" : "SIMULATED MONITORS", 455, 435, 18, GREEN, Paint.Align.LEFT, true);
+        text(c, "Misfire  •  Fuel System  •  Components", 455, 470, 13, MUTED, Paint.Align.LEFT, false);
+        text(c, "Catalyst  •  O2 Sensor  •  EGR", 455, 498, 13, MUTED, Paint.Align.LEFT, false);
+        text(c, liveConnected ? "ECU link active" : "Waiting for real ECU", 455, 526, 13, MUTED, Paint.Align.LEFT, false);
+
         float y = 432;
         drawSensorRow(c, "RPM", String.format(Locale.US, "%.0f rpm", rpm), y); y += 21;
         drawSensorRow(c, "Vehicle Speed", String.format(Locale.US, "%.0f km/h", speed), y); y += 21;
@@ -338,7 +382,7 @@ public class DashboardView extends View {
         drawSensorRow(c, "Coolant", String.format(Locale.US, "%.0f °C", coolant), y); y += 21;
         drawSensorRow(c, "Voltage", String.format(Locale.US, "%.2f V", voltage), y); y += 21;
         drawSensorRow(c, "Intake Temp", String.format(Locale.US, "%.0f °C", intake), y); y += 21;
-        drawSensorRow(c, "MAF", String.format(Locale.US, "%.1f g/s", Math.max(1.0f, rpm / 1550f)), y);
+        drawSensorRow(c, "MAF", String.format(Locale.US, "%.1f g/s", maf), y);
     }
 
     private void drawSensorRow(Canvas c, String label, String value, float y) {
@@ -362,6 +406,82 @@ public class DashboardView extends View {
         progress(c, barL, barY, barR, raw, min, max);
     }
 
+    private void updateTripValues(float dtSec) {
+        trip += speed * dtSec / 3600f;
+        tripSeconds += dtSec;
+        float hours = Math.max(0.001f, tripSeconds / 3600f);
+        avgSpeed = Math.max(0f, trip / hours);
+
+        if (maf > 0.1f && speed > 4f) {
+            // Approximate gasoline consumption from MAF using stoichiometric AFR 14.7 and fuel density 745 g/L.
+            float litersPerHour = maf * 3600f / (14.7f * 745f);
+            float instant = litersPerHour * 100f / speed;
+            if (instant > 0.5f && instant < 50f) fuelEconomy += (instant - fuelEconomy) * 0.025f;
+        } else if (!liveConnected) {
+            float demo = 5.2f + throttle * 0.045f + load * 0.018f;
+            fuelEconomy += (demo - fuelEconomy) * 0.02f;
+        }
+    }
+
+    private void drawTopStatus(Canvas c) {
+        int color = GREEN;
+        String label = "OBD: SIMULATOR";
+        String sub = "TEST MODE - TAP TO CONNECT";
+        if (obdState == ObdManager.State.SEARCHING) { label = "OBD: SEARCHING"; color = Color.rgb(255, 214, 74); sub = obdDetail; }
+        else if (obdState == ObdManager.State.ADAPTER_FOUND) { label = "OBD: FOUND"; color = Color.rgb(78, 220, 255); sub = obdDetail; }
+        else if (obdState == ObdManager.State.CONNECTING) { label = "OBD: CONNECTING"; color = Color.rgb(255, 214, 74); sub = obdDetail; }
+        else if (obdState == ObdManager.State.ECU_CONNECTED) { label = "OBD: CONNECTED"; color = GREEN; sub = obdTransport + " • LIVE ECU"; }
+        else if (obdState == ObdManager.State.ERROR) { label = "OBD: ERROR"; color = Color.rgb(255, 88, 74); sub = obdDetail; }
+
+        p.setColor(color);
+        c.drawCircle(sx(904), sy(24), sx(7), p);
+        text(c, label, 930, 30, 17, color, Paint.Align.LEFT, true);
+        text(c, sub, 930, 50, 10.5f, MUTED, Paint.Align.LEFT, false);
+        String time = new SimpleDateFormat("HH:mm", Locale.US).format(new Date());
+        text(c, time, 1165, 32, 20, WHITE, Paint.Align.CENTER, true);
+    }
+
+    private void startObdConnection() {
+        if (!activity.hasObdBluetoothPermissions()) {
+            showDetail("OBD CONNECTION", "PERMISSION REQUIRED", "Allow Bluetooth permission, then tap OBD again.");
+            return;
+        }
+        obdManager.startAutoConnect();
+    }
+
+    public void onBluetoothPermissionResult(boolean granted) {
+        if (granted) {
+            obdDetail = "Bluetooth permission ready - tap OBD to connect";
+        } else {
+            obdState = ObdManager.State.ERROR;
+            obdDetail = "Bluetooth permission denied";
+        }
+        invalidate();
+    }
+
+    @Override
+    public void onObdState(ObdManager.State state, String detail, String transport) {
+        obdState = state;
+        obdDetail = detail == null ? "" : detail;
+        obdTransport = transport == null ? "AUTO" : transport;
+        liveConnected = state == ObdManager.State.ECU_CONNECTED;
+        invalidate();
+    }
+
+    @Override
+    public void onTelemetry(ObdManager.Telemetry t) {
+        if (!Float.isNaN(t.rpm)) rpm = t.rpm;
+        if (!Float.isNaN(t.speed)) speed = t.speed;
+        if (!Float.isNaN(t.coolant)) coolant = t.coolant;
+        if (!Float.isNaN(t.throttle)) throttle = t.throttle;
+        if (!Float.isNaN(t.load)) load = t.load;
+        if (!Float.isNaN(t.intake)) intake = t.intake;
+        if (!Float.isNaN(t.voltage)) voltage = t.voltage;
+        if (!Float.isNaN(t.maf)) maf = t.maf;
+        if (!Float.isNaN(t.fuel)) fuel = t.fuel;
+        invalidate();
+    }
+
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         if (event.getAction() != MotionEvent.ACTION_UP) return true;
@@ -376,6 +496,11 @@ public class DashboardView extends View {
 
         float x = event.getX() * 1280f / getWidth();
         float y = event.getY() * 720f / getHeight();
+
+        if (y < 70f && x > 880f && x < 1140f) {
+            startObdConnection();
+            return true;
+        }
 
         if (y >= 625f) {
             if (x < 426f) mode = Mode.STREET;
@@ -398,7 +523,7 @@ public class DashboardView extends View {
             else if (in(x, y, 430, 500, 850, 625)) showDetail("ENGINE LOAD", String.format(Locale.US, "%.0f %%", load), "Calculated engine load. OBD PID 0104 in live mode.");
             else if (in(x, y, 850, 500, 1255, 625)) showDetail("INTAKE TEMP", String.format(Locale.US, "%.0f °C", intake), "Intake air temperature. OBD PID 010F in live mode.");
         } else {
-            if (in(x, y, 200, 80, 615, 245)) showDetail("OBD CONNECTION", "SIMULATOR", "Adapter is not connected. Live OBD transport will be added after the exact adapter type is confirmed.");
+            if (in(x, y, 200, 80, 615, 245)) { startObdConnection(); }
             else if (in(x, y, 620, 80, 1035, 245)) showDetail("ECU STATUS", "SIMULATED", "Honda PGM-FI profile is shown for UI testing. ECU has not been queried.");
             else if (in(x, y, 25, 390, 370, 625)) showDetail("FAULT CODES (DTC)", "NO TEST FAULTS", "This build does not claim real DTC status. Reading and clearing DTCs will be enabled in live OBD mode.");
             else if (in(x, y, 375, 390, 850, 625)) showDetail("READINESS MONITORS", "SIMULATED", "Monitor states are visual test data only until the vehicle ECU is connected.");
