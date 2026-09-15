@@ -66,6 +66,32 @@ public class ObdProtocolTest {
         assertEquals("P0300", r.codes.get(0));
     }
 
+    @Test public void stoppedIsTextStatusNotPayload() {
+        ObdProtocol.ParsedResponse p = ObdProtocol.parse("STOPPED\r>", "010C");
+        assertEquals(ObdProtocol.TextStatus.STOPPED, p.status);
+        assertTrue(p.frames.isEmpty());
+    }
+
+    @Test public void unableToConnectIsTextStatusNotPayload() {
+        ObdProtocol.ParsedResponse p = ObdProtocol.parse("UNABLE TO CONNECT\r>", "0100");
+        assertEquals(ObdProtocol.TextStatus.UNABLE_TO_CONNECT, p.status);
+        assertTrue(p.frames.isEmpty());
+    }
+
+    @Test public void secondSupportedPidPageDecodes() {
+        Set<Integer> pids = ObdProtocol.decodeSupportedPids(0x20, new byte[]{(byte) 0x80, 0, 0, 1});
+        assertTrue(pids.contains(0x21));
+        assertTrue(pids.contains(0x40));
+    }
+
+    @Test public void mode03DecodesMultipleCodes() {
+        ObdProtocol.DtcParseResult r = ObdProtocol.parseMode03(ObdProtocol.parse("43 03 00 01 71\r>", "03"));
+        assertTrue(r.validMode03Response);
+        assertEquals(2, r.codes.size());
+        assertEquals("P0300", r.codes.get(0));
+        assertEquals("P0171", r.codes.get(1));
+    }
+
     @Test public void readinessUsesSupportAndIncompleteBitsSeparately() {
         ObdManager.Readiness r = new ObdManager.Readiness();
         // Spark ignition. Misfire supported+complete; Fuel supported+incomplete; Catalyst supported+complete.

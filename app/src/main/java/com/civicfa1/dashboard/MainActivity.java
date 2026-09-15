@@ -27,14 +27,17 @@ public class MainActivity extends Activity {
         void onEndpoint(String host, int port);
     }
 
+    public interface IntValueCallback {
+        void onValue(int value);
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         hideSystemUi();
         dashboardView = new DashboardView(this);
         setContentView(dashboardView);
-        // Explain why Bluetooth permission is needed instead of requesting it without context.
-        if (!hasObdBluetoothPermissions()) showBluetoothPermissionExplanation();
+        // Bluetooth permission is requested only when the user scans/connects a Bluetooth transport.
     }
 
     public boolean hasObdBluetoothPermissions() {
@@ -78,6 +81,44 @@ public class MainActivity extends Activity {
             permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
         }
         requestPermissions(permissions.toArray(new String[0]), BT_PERMISSION_REQUEST);
+    }
+
+
+    public void promptConnectionTimeout(int currentMs, IntValueCallback callback) {
+        EditText value = new EditText(this);
+        value.setSingleLine(true);
+        value.setInputType(InputType.TYPE_CLASS_NUMBER);
+        value.setText(Integer.toString(currentMs));
+        int pad = (int) (18 * getResources().getDisplayMetrics().density);
+        value.setPadding(pad, pad / 2, pad, pad / 2);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Connection timeout (ms)")
+                .setMessage("Allowed range: 3000–15000 ms")
+                .setView(value)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Save", (d, which) -> {
+                    int ms;
+                    try { ms = Integer.parseInt(value.getText().toString().trim()); }
+                    catch (NumberFormatException e) { ms = -1; }
+                    if (ms < 3000 || ms > 15000) {
+                        Toast.makeText(this, "Enter 3000–15000 ms", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    if (callback != null) callback.onValue(ms);
+                })
+                .show();
+    }
+
+    public void showObdLog(String logText, Runnable exportAction) {
+        String text = logText == null || logText.trim().isEmpty() ?
+                "Debug logging is currently empty. Enable logging in the project preferences when detailed transport traces are required." : logText;
+        new AlertDialog.Builder(this)
+                .setTitle("OBD debug log")
+                .setMessage(text)
+                .setNegativeButton("Close", null)
+                .setNeutralButton("Export", (d, which) -> { if (exportAction != null) exportAction.run(); })
+                .show();
     }
 
     @Override

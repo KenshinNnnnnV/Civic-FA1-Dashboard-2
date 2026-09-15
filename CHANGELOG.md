@@ -1,46 +1,33 @@
 # Changelog
 
-## 0.6.0
+## v0.7.1 — reference-match + Vgate BLE recovery
 
-Major reliability and OBD audit release based on the verified v0.5.0 repository state.
+### UI
+- Recalibrated all three screens against the approved 1280×720 reference images.
+- Header reduced to 60 px and aligned to the reference.
+- Connect page card geometry now follows the reference grid instead of the oversized v0.7.0 layout.
+- Connect background is intentionally much darker; decorative city/car art no longer competes with cards.
+- Sport tachometer enlarged and repositioned; the extra top shift-light row from v0.7.0 was removed because it is not present in the final approved reference.
+- Sport card geometry was recalibrated to keep the large side cards and three lower sensor cards clear of the tachometer.
+- Diagnostics top art is darkened/green-tinted and all diagnostic panels were moved to match the reference composition.
+- Panel opacity increased and border color changed from bright blue to dark OEM teal/gray.
+- Honda header mark replaced with a vector-style badge instead of the previous square H placeholder.
+- Added normalized 1280×720 reference images to `design-reference/` so future work uses the same coordinate space as the head unit.
 
-### OBD / transport
-- Added per-connection Session objects and generation IDs to isolate stale callbacks/resources.
-- BLE ELM startup now waits for successful CCCD subscription (`onDescriptorWrite`).
-- BLE UART selection is limited to coherent, explicitly supported service/characteristic layouts.
-- Bluetooth Classic socket is stored before blocking connect so disconnect/timeout can close it.
-- Retained secure → insecure SPP fallback without blocking the UI thread.
-- AUTO no longer chooses an adapter from name heuristics; it uses only a previously ECU-verified adapter.
-- ECU handshake requires a complete valid `41 00 A B C D` response.
-- Added supported PID bitmap discovery including continuation pages.
-- Temporary communication errors no longer mark supported PIDs permanently unsupported.
-- Strict response parser preserves line/message boundaries and rejects arbitrary mixed text as hex.
-- Command timeout without prompt `>` aborts/retries instead of accepting partial data.
-- Added per-sensor freshness timestamps / TTL.
-- Corrected readiness decoding using B/C/D and spark/compression layouts.
-- DTC states now distinguish not-read, read-error, no-codes and codes-present.
-- Added ECU module voltage PID 0142; ATRV remains separately identified as adapter voltage.
-- Added 0106/0107 fuel trims.
-- Added sequential priority polling scheduler.
+### OBD / Vgate
+- Added the Vgate iCar Pro / VLink BLE GATT profile reported on real iCar Pro BLE 4.0 hardware:
+  - service `000018F0-0000-1000-8000-00805F9B34FB`
+  - notify `00002AF0-0000-1000-8000-00805F9B34FB`
+  - write `00002AF1-0000-1000-8000-00805F9B34FB`
+- Added the Vgate vendor single-characteristic profile as an explicit secondary supported profile.
+- BLE now connects with `TRANSPORT_LE` on API 23+ and requests high connection priority.
+- BLE scanner retries Android scan error 2 (`APPLICATION_REGISTRATION_FAILED`) twice with cooldown.
+- Classic Bluetooth discovery is cancelled before BLE scanning to reduce radio conflicts on vendor head units.
+- Removed `neverForLocation` from `BLUETOOTH_SCAN` because some Android BLE stacks can filter advertisements when that assertion is used.
+- GATT service/characteristic layout is recorded in the bounded connection log before profile selection.
+- Minimal state/GATT connection trace is retained even when verbose raw ELM logging is disabled, so a failed real-car test produces useful evidence in `View Log`.
 
-### Connection manager / lifecycle
-- Device list uses stable transport/address keys and supports scrolling.
-- Added Classic discovery and BLE scanning paths.
-- Added Scan, Select, Connect, Disconnect/Retry flow and functional auto-reconnect preference.
-- Wi‑Fi host/port are editable and persisted.
-- Successful Classic, BLE and Wi‑Fi adapters can be saved only after a real ECU handshake.
-- Added explicit Activity start/stop/destroy integration and old-session callback suppression.
-
-### UI / performance
-- Runtime artwork contains no baked cards or sensor values.
-- Cards, labels, bars, gauges and status are native Canvas widgets.
-- Removed old mask/cover approach and random telemetry.
-- Fixed 1280×720 virtual geometry for all three modes.
-- Equal-size bottom tabs; Street green, Sport red, Diagnostics cyan.
-- Removed forced software layer.
-- Cached long-lived clock formatter and static bitmap assets.
-- Corrected Sport tachometer color-zone logic.
-
-### Verification
-- Added pure-Java protocol unit tests for echo/text filtering, malformed input, prompt handling, PID bitmaps and Mode 03 DTC parsing.
-- GitHub Actions runs tests before the APK build.
+### Build
+- versionCode 18
+- versionName 0.7.1
+- GitHub Actions artifact: `Civic-FA1-Dashboard-v0.7.1-APK`

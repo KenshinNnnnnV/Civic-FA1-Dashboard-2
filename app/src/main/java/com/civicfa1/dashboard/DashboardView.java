@@ -1,90 +1,159 @@
 package com.civicfa1.dashboard;
 
-import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.Rect;
 import android.graphics.RectF;
-import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.MotionEvent;
 import android.view.View;
+import android.widget.Toast;
 
+import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
 /**
- * Civic FA1 Dashboard v0.6.0
+ * Civic FA1 Dashboard v0.7.1 product UI.
  *
- * The UI is rendered as real widgets on a fixed 1280x720 design canvas. Background JPGs
- * contribute only city/car artwork; all gauges, cards, labels and live values are drawn by
- * the app. This avoids baked values, opaque patches and mode-to-mode scaling jumps.
+ * Three fixed 1280x720 modes: CONNECT / SPORT / DIAGNOSTICS.
+ * Reference screenshots are treated as layout specifications only. Runtime backgrounds contain
+ * decorative city/car artwork; all cards, gauges, labels, statuses and dynamic values are drawn by
+ * the application. There are no baked live values and no simulator telemetry in normal mode.
  */
 public final class DashboardView extends View implements ObdManager.Listener {
 
-    private enum Mode { STREET, SPORT, DIAGNOSTICS }
+    private enum Mode { CONNECT, SPORT, DIAGNOSTICS }
+    private enum Icon { OBD, CHIP, RADIO, BLUETOOTH, GEAR, LINK, SEARCH, LIST, LOG, CLOCK, PULSE, BATTERY, TEMP, AIR, THROTTLE, ENGINE, FUEL, ROAD, FLAG, WARNING, CHECK, O2, SNOW, LEAF, INFO, WIFI }
+
+    private enum SensorKey {
+        COOLANT("COOLANT TEMP", "°C", 50f, 130f, 0x05, 0, Icon.TEMP),
+        INTAKE("INTAKE TEMP", "°C", -20f, 80f, 0x0F, 0, Icon.AIR),
+        MODULE_VOLTAGE("MODULE VOLTAGE", "V", 10f, 16f, 0x42, 1, Icon.BATTERY),
+        ADAPTER_VOLTAGE("ADAPTER VOLTAGE", "V", 10f, 16f, -2, 1, Icon.BATTERY),
+        THROTTLE("THROTTLE", "%", 0f, 100f, 0x11, 0, Icon.THROTTLE),
+        LOAD("ENGINE LOAD", "%", 0f, 100f, 0x04, 0, Icon.ENGINE),
+        FUEL("FUEL LEVEL", "%", 0f, 100f, 0x2F, 0, Icon.FUEL),
+        MAF("MAF", "g/s", 0f, 150f, 0x10, 1, Icon.PULSE),
+        MAP("MAP", "kPa", 0f, 110f, 0x0B, 0, Icon.PULSE),
+        STFT("SHORT FUEL TRIM", "%", -25f, 25f, 0x06, 1, Icon.FUEL),
+        LTFT("LONG FUEL TRIM", "%", -25f, 25f, 0x07, 1, Icon.FUEL),
+        TIMING("IGNITION TIMING", "°", -20f, 50f, 0x0E, 1, Icon.PULSE),
+        FUEL_RATE("FUEL RATE", "L/h", 0f, 30f, 0x5E, 1, Icon.FUEL);
+
+        final String title;
+        final String unit;
+        final float min;
+        final float max;
+        final int pid;
+        final int decimals;
+        final Icon icon;
+        SensorKey(String title, String unit, float min, float max, int pid, int decimals, Icon icon) {
+            this.title = title; this.unit = unit; this.min = min; this.max = max;
+            this.pid = pid; this.decimals = decimals; this.icon = icon;
+        }
+    }
+
+    private static final class SensorReading {
+        final SensorKey key;
+        final float value;
+        final SensorFreshness.State state;
+        SensorReading(SensorKey key, float value, SensorFreshness.State state) {
+            this.key = key; this.value = value; this.state = state;
+        }
+        String display() {
+            if (state == SensorFreshness.State.UNSUPPORTED) return "N/A";
+            if (state != SensorFreshness.State.VALID || Float.isNaN(value)) return "--";
+            return key.decimals == 0 ? String.format(Locale.US, "%.0f", value) : String.format(Locale.US, "%.1f", value);
+        }
+    }
 
     private static final float DW = 1280f;
     private static final float DH = 720f;
+    private static final float HEADER_H = 60f;
+    private static final float NAV_TOP = 632f;
+    private static final float NAV_BOTTOM = 716f;
 
-    private static final int BG = Color.rgb(2, 10, 17);
-    private static final int PANEL = Color.rgb(5, 24, 37);
-    private static final int PANEL2 = Color.rgb(7, 31, 46);
-    private static final int BORDER = Color.rgb(50, 178, 229);
-    private static final int CYAN = Color.rgb(38, 240, 219);
-    private static final int GREEN = Color.rgb(43, 244, 155);
-    private static final int RED = Color.rgb(255, 72, 87);
-    private static final int ORANGE = Color.rgb(255, 158, 62);
-    private static final int BLUE = Color.rgb(24, 121, 226);
-    private static final int WHITE = Color.rgb(242, 248, 253);
-    private static final int MUTED = Color.rgb(177, 199, 216);
-    private static final int DIM = Color.rgb(91, 125, 147);
+    private static final int BG = Color.rgb(2, 9, 14);
+    private static final int PANEL = Color.rgb(3, 16, 20);
+    private static final int PANEL_2 = Color.rgb(5, 22, 27);
+    private static final int BORDER = Color.rgb(52, 76, 85);
+    private static final int WHITE = Color.rgb(244, 247, 249);
+    private static final int MUTED = Color.rgb(188, 199, 207);
+    private static final int DIM = Color.rgb(102, 120, 129);
+    private static final int GREEN = Color.rgb(24, 240, 145);
+    private static final int CYAN = Color.rgb(31, 224, 201);
+    private static final int RED = Color.rgb(255, 55, 76);
+    private static final int YELLOW = Color.rgb(255, 214, 40);
+    private static final int ORANGE = Color.rgb(255, 146, 28);
 
     private final MainActivity activity;
     private final ObdManager obd;
-    private final SharedPreferences prefs;
+    private final android.content.SharedPreferences prefs;
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Path path = new Path();
 
-    private final Bitmap streetArtwork;
+    private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.SUBPIXEL_TEXT_FLAG);
+    private final Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.SUBPIXEL_TEXT_FLAG);
+    private final Path path = new Path();
+    private final RectF tmp = new RectF();
+    private final Typeface regular = Typeface.create("sans-serif-condensed", Typeface.NORMAL);
+    private final Typeface bold = Typeface.create("sans-serif-condensed", Typeface.BOLD);
+    private final Typeface italicBold = Typeface.create("sans-serif-condensed", Typeface.BOLD_ITALIC);
+    private final Typeface wide = Typeface.create("sans-serif", Typeface.NORMAL);
+    private final Typeface wideBold = Typeface.create("sans-serif", Typeface.BOLD);
+    private final SimpleDateFormat clockFormat = new SimpleDateFormat("HH:mm", Locale.US);
+
+    private final Bitmap connectArtwork;
     private final Bitmap sportArtwork;
     private final Bitmap diagnosticsArtwork;
 
-    private Mode mode = Mode.STREET;
+    private Mode mode = Mode.CONNECT;
     private ObdManager.State obdState = ObdManager.State.DISCONNECTED;
-    private ObdManager.Transport obdTransport = ObdManager.Transport.AUTO;
-    private String obdDetail = "Tap to connect";
+    private ObdManager.Transport activeTransport = ObdManager.Transport.AUTO;
+    private ObdManager.Transport selectedTransport = ObdManager.Transport.BLE;
+    private String obdDetail = "Choose an adapter";
     private String adapterName = "";
+    private String selectedDeviceKey = "";
+    private String connectedAddress = "";
+    private long connectedAtMs;
+    private long lastConnectedAtMs;
+    private int deviceScroll;
+
     private ObdManager.Telemetry telemetry = new ObdManager.Telemetry();
     private ObdManager.Readiness readiness = new ObdManager.Readiness();
-    private ObdManager.DtcResult dtcResult = new ObdManager.DtcResult();
+    private ObdManager.DtcResult dtc = new ObdManager.DtcResult();
     private List<ObdManager.DeviceInfo> devices = new ArrayList<>();
 
-    private boolean connectionPanelOpen = false;
-    private ObdManager.Transport selectorTransport = ObdManager.Transport.BLUETOOTH;
-    private String selectedDeviceKey = "";
-    private int deviceScroll = 0;
     private boolean autoReconnect;
+    private boolean autoDetectProtocol;
+    private boolean lowPowerMode;
     private String wifiHost;
     private int wifiPort;
-    private boolean firstAttach = true;
+    private int connectionTimeoutMs;
+
+    private final SensorKey[] sportSlots = new SensorKey[5];
+    private int sensorPickerSlot = -1;
+    private float diagLiveScroll;
+    private float touchDownY;
+    private float lastTouchY;
+    private boolean diagDragging;
 
     private float viewScale = 1f;
-    private float viewOffsetX = 0f;
-    private float viewOffsetY = 0f;
-    private final SimpleDateFormat clockFormat = new SimpleDateFormat("HH:mm", Locale.US);
+    private float viewOffsetX;
+    private float viewOffsetY;
+    private boolean firstHostStart = true;
 
     private final Runnable clockTick = new Runnable() {
         @Override public void run() {
@@ -93,18 +162,61 @@ public final class DashboardView extends View implements ObdManager.Listener {
         }
     };
 
+    // Geometry measured from the final approved 1280x720 reference, not from the v0.6 mock.
+    private final RectF[] connectCards = {
+            new RectF(2, 68, 428, 226), new RectF(436, 68, 834, 226), new RectF(842, 68, 1266, 226),
+            new RectF(2, 234, 428, 442), new RectF(436, 234, 792, 442), new RectF(800, 234, 1266, 442),
+            new RectF(2, 450, 428, 628), new RectF(436, 450, 834, 628), new RectF(842, 450, 1266, 628)
+    };
+
+    private final RectF sportLeftBig = new RectF(30, 292, 384, 449);
+    private final RectF sportRightBig = new RectF(896, 292, 1250, 449);
+    private final RectF sportBottomLeft = new RectF(30, 463, 432, 620);
+    private final RectF sportBottomMid = new RectF(444, 463, 836, 620);
+    private final RectF sportBottomRight = new RectF(848, 463, 1250, 620);
+
     public DashboardView(MainActivity activity) {
         super(activity);
         this.activity = activity;
         this.obd = new ObdManager(activity, this);
         this.prefs = activity.getSharedPreferences("civic_dashboard", 0);
-        this.autoReconnect = prefs.getBoolean("auto_reconnect", true);
-        this.wifiHost = prefs.getString("wifi_host", "192.168.0.10");
-        this.wifiPort = prefs.getInt("wifi_port", 35000);
-        this.streetArtwork = BitmapFactory.decodeResource(getResources(), R.drawable.background_street);
-        this.sportArtwork = BitmapFactory.decodeResource(getResources(), R.drawable.background_sport);
-        this.diagnosticsArtwork = BitmapFactory.decodeResource(getResources(), R.drawable.background_diagnostics);
-        p.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
+
+        autoReconnect = prefs.getBoolean("auto_reconnect", true);
+        autoDetectProtocol = prefs.getBoolean("auto_detect_protocol", true);
+        lowPowerMode = prefs.getBoolean("low_power_mode", false);
+        wifiHost = prefs.getString("wifi_host", "192.168.0.10");
+        wifiPort = prefs.getInt("wifi_port", 35000);
+        connectionTimeoutMs = prefs.getInt("connection_timeout_ms", 5000);
+
+        selectedTransport = parseTransport(prefs.getString("ui_selected_transport", ObdManager.Transport.BLE.name()), ObdManager.Transport.BLE);
+        connectedAddress = prefs.getString("verified_address", "");
+
+        sportSlots[0] = loadSlot(0, SensorKey.COOLANT);
+        sportSlots[1] = loadSlot(1, SensorKey.MODULE_VOLTAGE);
+        sportSlots[2] = loadSlot(2, SensorKey.THROTTLE);
+        sportSlots[3] = loadSlot(3, SensorKey.LOAD);
+        sportSlots[4] = loadSlot(4, SensorKey.INTAKE);
+
+        connectArtwork = BitmapFactory.decodeResource(getResources(), R.drawable.background_connect);
+        sportArtwork = BitmapFactory.decodeResource(getResources(), R.drawable.background_sport);
+        diagnosticsArtwork = BitmapFactory.decodeResource(getResources(), R.drawable.background_diagnostics);
+
+        fill.setStyle(Paint.Style.FILL);
+        stroke.setStyle(Paint.Style.STROKE);
+        stroke.setStrokeCap(Paint.Cap.ROUND);
+        stroke.setStrokeJoin(Paint.Join.ROUND);
+        text.setTypeface(regular);
+        glow.setTypeface(italicBold);
+        setFocusable(true);
+    }
+
+    private SensorKey loadSlot(int slot, SensorKey fallback) {
+        String s = prefs.getString("sport_slot_" + slot, fallback.name());
+        try { return SensorKey.valueOf(s); } catch (Exception ignored) { return fallback; }
+    }
+
+    private ObdManager.Transport parseTransport(String s, ObdManager.Transport fallback) {
+        try { return ObdManager.Transport.valueOf(s); } catch (Exception ignored) { return fallback; }
     }
 
     @Override protected void onAttachedToWindow() {
@@ -120,10 +232,10 @@ public final class DashboardView extends View implements ObdManager.Listener {
 
     public void onHostStart() {
         obd.refreshDevices();
-        if (autoReconnect && hasBluetoothPermission() && obdState == ObdManager.State.DISCONNECTED) {
-            handler.postDelayed(this::connectLastOrAuto, firstAttach ? 900L : 1200L);
+        if (autoReconnect && activity.hasObdBluetoothPermissions() && obdState == ObdManager.State.DISCONNECTED) {
+            handler.postDelayed(obd::connectAuto, firstHostStart ? 900L : 1400L);
         }
-        firstAttach = false;
+        firstHostStart = false;
     }
 
     public void onHostStop() {
@@ -134,12 +246,19 @@ public final class DashboardView extends View implements ObdManager.Listener {
     public void destroy() {
         handler.removeCallbacksAndMessages(null);
         obd.shutdown();
+        recycle(connectArtwork);
+        recycle(sportArtwork);
+        recycle(diagnosticsArtwork);
+    }
+
+    private void recycle(Bitmap b) {
+        if (b != null && !b.isRecycled()) b.recycle();
     }
 
     public void onBluetoothPermissionResult(boolean granted) {
         if (granted) {
             obd.refreshDevices();
-            if (autoReconnect && obdState == ObdManager.State.PERMISSION_REQUIRED) connectLastOrAuto();
+            if (autoReconnect) obd.connectAuto();
         } else {
             obdState = ObdManager.State.PERMISSION_REQUIRED;
             obdDetail = "Bluetooth permission required";
@@ -149,10 +268,6 @@ public final class DashboardView extends View implements ObdManager.Listener {
 
     @Override public boolean hasBluetoothPermission() {
         return activity.hasObdBluetoothPermissions();
-    }
-
-    private void connectLastOrAuto() {
-        obd.connectAuto();
     }
 
     @Override protected void onDraw(Canvas canvas) {
@@ -165,594 +280,969 @@ public final class DashboardView extends View implements ObdManager.Listener {
         canvas.save();
         canvas.translate(viewOffsetX, viewOffsetY);
         canvas.scale(s, s);
-
         drawBackground(canvas);
         drawHeader(canvas);
-        if (mode == Mode.STREET) drawStreet(canvas);
-        else if (mode == Mode.SPORT) drawSport(canvas);
-        else drawDiagnostics(canvas);
-        drawModeTabs(canvas);
-        if (connectionPanelOpen) drawConnectionPanel(canvas);
-
+        switch (mode) {
+            case CONNECT: drawConnect(canvas); break;
+            case SPORT: drawSport(canvas); break;
+            case DIAGNOSTICS: drawDiagnostics(canvas); break;
+        }
+        drawBottomNavigation(canvas);
+        if (sensorPickerSlot >= 0) drawSensorPicker(canvas);
         canvas.restore();
     }
 
-    // ---------------- Background / header ----------------
-
     private void drawBackground(Canvas c) {
-        fillRect(c, 0, 0, DW, DH, BG, 255);
-        Bitmap art = mode == Mode.STREET ? streetArtwork : mode == Mode.SPORT ? sportArtwork : diagnosticsArtwork;
-        if (art != null) {
-            p.setAlpha(205);
-            c.drawBitmap(art, null, new RectF(0, 76, DW, 615), p);
-            p.setAlpha(255);
+        fill.setColor(BG);
+        c.drawRect(0, 0, DW, DH, fill);
+        Bitmap b = mode == Mode.CONNECT ? connectArtwork : mode == Mode.SPORT ? sportArtwork : diagnosticsArtwork;
+        if (b != null && !b.isRecycled()) {
+            // Assets are already 1280x720 decorative-only shells. Draw 1:1 to avoid the vertical
+            // distortion seen in v0.7.0, then let opaque native cards sit above them.
+            int alpha = mode == Mode.CONNECT ? 72 : mode == Mode.SPORT ? 178 : 158;
+            fill.setAlpha(alpha);
+            c.drawBitmap(b, null, new RectF(0, 0, DW, DH), fill);
+            fill.setAlpha(255);
         }
-        // Native widgets sit over a subtle dark veil; there are no baked cards/values in runtime artwork.
-        p.setShader(null);
-        p.setColor(Color.argb(mode == Mode.SPORT ? 116 : 102, 0, 5, 12));
-        p.setStyle(Paint.Style.FILL);
-        c.drawRect(0, 76, DW, 615, p);
+        // Keep the reference's near-black OEM background. The art should be atmosphere, not UI.
+        fill.setColor(Color.argb(mode == Mode.SPORT ? 62 : 80, 0, 6, 8));
+        c.drawRect(0, HEADER_H, DW, NAV_TOP, fill);
+    }
+
+    private int modeAccent() {
+        return mode == Mode.SPORT ? RED : mode == Mode.DIAGNOSTICS ? CYAN : GREEN;
     }
 
     private void drawHeader(Canvas c) {
-        fillRect(c, 0, 0, 1280, 76, Color.rgb(2, 12, 22), 248);
-        strokeLine(c, 0, 75, 1280, 75, Color.argb(170, 78, 181, 230), 1.2f);
-        int accent = mode == Mode.SPORT ? RED : (mode == Mode.DIAGNOSTICS ? CYAN : GREEN);
+        fill.setColor(Color.argb(252, 1, 9, 12));
+        c.drawRect(0, 0, DW, HEADER_H, fill);
+        line(c, 0, HEADER_H - 1, DW, HEADER_H - 1, Color.argb(95, 87, 121, 136), 1f);
 
-        // Brand mark
-        strokeRound(c, 24, 15, 76, 61, 9, WHITE, 3f, 240);
-        text(c, "H", 50, 51, 34, WHITE, Paint.Align.CENTER, true, false);
-        text(c, "CIVIC FA1", 92, 40, 28, WHITE, Paint.Align.LEFT, true, true);
-        text(c, "i-VTEC · 1.8L R18A", 94, 60, 13, MUTED, Paint.Align.LEFT, false, false);
+        drawHondaMark(c, 26, 8);
+        label(c, "CIVIC FA1", 92, 29, 25, WHITE, Paint.Align.LEFT, true, true);
+        label(c, "i-VTEC · 1.8L R18A", 94, 48, 11, MUTED, Paint.Align.LEFT, false, true);
 
-        String title = mode == Mode.STREET ? "STREET MODE" : mode == Mode.SPORT ? "SPORT MODE" : "DIAGNOSTICS MODE";
-        String subtitle = mode == Mode.STREET ? "COMFORT EVERYDAY" : mode == Mode.SPORT ? "MORE RESPONSE" : "SYSTEM HEALTH MONITOR";
-        glowLine(c, 380, 37, 468, 37, accent, 4f, 7f);
-        glowLine(c, 812, 37, 900, 37, accent, 4f, 7f);
-        glowText(c, title, 640, 42, 31, accent, Paint.Align.CENTER, true, 5f);
-        text(c, subtitle, 640, 63, 13, WHITE, Paint.Align.CENTER, false, true);
+        String title = mode == Mode.CONNECT ? "CONNECTION MODE" : mode == Mode.SPORT ? "SPORT MODE" : "DIAGNOSTICS MODE";
+        String sub = mode == Mode.CONNECT ? "OBD SETUP & LINK" : mode == Mode.SPORT ? "HIGHER STANDARDS" : "SYSTEM HEALTH MONITOR";
+        int accent = modeAccent();
+        line(c, 402, 25, 493, 25, Color.argb(155, 190, 204, 211), 1.1f);
+        line(c, 788, 25, 879, 25, Color.argb(155, 190, 204, 211), 1.1f);
+        glowLabel(c, title, 640, 31, 27, accent, Paint.Align.CENTER, true, 2.3f);
+        label(c, sub, 640, 51, 11, MUTED, Paint.Align.CENTER, false, true);
 
-        boolean connected = obdState == ObdManager.State.ECU_CONNECTED;
-        int statusColor = connected ? GREEN : (obdState == ObdManager.State.ERROR ? RED : CYAN);
-        fillCircle(c, 955, 31, 9, statusColor, 255);
-        String status = connected ? "OBD: CONNECTED" : obdState == ObdManager.State.ERROR ? "OBD: ERROR" :
-                obdState == ObdManager.State.DISCONNECTED ? "OBD: DISCONNECTED" : "OBD: " + stateShort(obdState);
-        text(c, status, 976, 30, 17, statusColor, Paint.Align.LEFT, true, false);
-        String sub = connected ? nonEmpty(adapterName, transportLabel(obdTransport)) : truncate(obdDetail, 31);
-        text(c, sub, 976, 52, 11, MUTED, Paint.Align.LEFT, false, false);
-
-        text(c, clockFormat.format(new Date()), 1168, 40, 24, WHITE, Paint.Align.CENTER, true, false);
-        drawWifi(c, 1244, 31, WHITE);
+        int sc = stateColor();
+        circle(c, 913, 21, 6.5f, sc);
+        label(c, "OBD: " + stateTitle(), 934, 24, 15, sc, Paint.Align.LEFT, true, false);
+        label(c, stateSubtitle(), 934, 43, 9.5f, MUTED, Paint.Align.LEFT, false, false);
+        line(c, 1110, 8, 1110, 51, Color.argb(80, 140, 155, 164), 1f);
+        label(c, clockFormat.format(new Date()), 1161, 31, 20, WHITE, Paint.Align.CENTER, true, false);
+        drawIcon(c, Icon.WIFI, 1234, 24, WHITE, 0.70f);
     }
 
-    private String stateShort(ObdManager.State s) {
-        switch (s) {
+    private int stateColor() {
+        if (obdState == ObdManager.State.ECU_CONNECTED) return GREEN;
+        if (obdState == ObdManager.State.ERROR) return RED;
+        if (obdState == ObdManager.State.DISCONNECTED) return MUTED;
+        return CYAN;
+    }
+
+    private String stateTitle() {
+        switch (obdState) {
+            case ECU_CONNECTED: return "CONNECTED";
             case SEARCHING: return "SEARCHING";
-            case ADAPTER_FOUND: return "FOUND";
+            case ADAPTER_FOUND: return "ADAPTER FOUND";
             case CONNECTING: return "CONNECTING";
             case INITIALIZING: return "INITIALIZING";
-            case ECU_CONNECTING: return "ECU";
+            case ECU_CONNECTING: return "ECU HANDSHAKE";
             case PERMISSION_REQUIRED: return "PERMISSION";
-            default: return "OFFLINE";
+            case ERROR: return "ERROR";
+            default: return "DISCONNECTED";
         }
     }
 
-    // ---------------- Street ----------------
-
-    private void drawStreet(Canvas c) {
-        drawSpeedDial(c, 640, 310, 225, GREEN, pidValue(telemetry.speed, 0x0D, 0), 220f);
-        drawRpmHalfDial(c, 640, 545, 182, GREEN, pidValue(telemetry.rpm, 0x0C, 0));
-
-        drawMetricCard(c, new RectF(26, 308, 368, 455), "COOLANT TEMP", MetricIcon.THERMOMETER,
-                pidValue(telemetry.coolant, 0x05, 0), "°C", 50, 130, GREEN, telemetry.coolant);
-        drawMetricCard(c, new RectF(26, 468, 395, 603), "FUEL LEVEL", MetricIcon.FUEL,
-                pidValue(telemetry.fuel, 0x2F, 0), "%", 0, 100, GREEN, telemetry.fuel);
-        drawMetricCard(c, new RectF(912, 308, 1254, 455), "INTAKE TEMP", MetricIcon.AIR,
-                pidValue(telemetry.intake, 0x0F, 0), "°C", -20, 80, CYAN, telemetry.intake);
-        drawMetricCard(c, new RectF(885, 468, 1254, 603), "BATTERY VOLTAGE", MetricIcon.BATTERY,
-                pidValue(telemetry.voltage, 0x42, 1), "V", 10, 16, CYAN, telemetry.voltage);
-    }
-
-    private void drawSpeedDial(Canvas c, float cx, float cy, float radius, int accent, String display, float max) {
-        // dark dial body
-        fillCircle(c, cx, cy, radius, Color.rgb(2, 12, 20), 245);
-        strokeCircle(c, cx, cy, radius, Color.rgb(128, 188, 224), 2.4f, 220);
-        strokeCircle(c, cx, cy, radius - 10, Color.argb(120, 70, 130, 170), 1.1f, 255);
-        float value = finite(telemetry.speed) ? telemetry.speed : 0f;
-        float start = 145f, sweep = 250f;
-        drawArcTrack(c, cx, cy, radius - 10, start, sweep, Color.rgb(34, 52, 71), 13f);
-        drawArcTrack(c, cx, cy, radius - 10, start, sweep * clamp(value / max), accent, 13f);
-        for (int i = 0; i <= 44; i++) {
-            float a = start + sweep * i / 44f;
-            float len = i % 4 == 0 ? 13 : 7;
-            radialLine(c, cx, cy, radius - 24, radius - 24 - len, a, WHITE, i % 4 == 0 ? 2.5f : 1f, i % 4 == 0 ? 240 : 150);
+    private String stateSubtitle() {
+        if (obdState == ObdManager.State.ECU_CONNECTED) {
+            String p = telemetry.protocol == null || telemetry.protocol.isEmpty() ? transportLabel(activeTransport) : telemetry.protocol;
+            return truncate(p, 26);
         }
-        for (int v = 0; v <= 220; v += 20) {
-            float a = start + sweep * v / max;
-            polarText(c, Integer.toString(v), cx, cy, radius - 57, a, 18, WHITE);
-        }
-        glowText(c, display, cx, cy + 35, 82, WHITE, Paint.Align.CENTER, true, 5f);
-        text(c, "km/h", cx, cy + 77, 25, WHITE, Paint.Align.CENTER, true, false);
+        return truncate(obdDetail == null || obdDetail.isEmpty() ? "No ECU data" : obdDetail, 33);
     }
 
-    private void drawRpmHalfDial(Canvas c, float cx, float cy, float radius, int accent, String display) {
-        RectF r = new RectF(cx - radius, cy - radius * 0.72f, cx + radius, cy + radius * 0.72f);
-        fillRound(c, cx - radius - 12, cy - 78, cx + radius + 12, cy + 76, 20, Color.rgb(2, 14, 22), 250);
-        drawArc(c, r, 195, 150, Color.rgb(45, 64, 82), 10f, 255);
-        float rpm = finite(telemetry.rpm) ? telemetry.rpm : 0f;
-        drawArc(c, r, 195, 150 * clamp(rpm / 8000f), accent, 10f, 255);
-        if (rpm > 6500) drawArc(c, r, 195 + 150 * 0.81f, 150 * 0.19f, RED, 10f, 255);
-        for (int v = 0; v <= 8; v++) {
-            float a = 195 + 150f * v / 8f;
-            polarText(c, Integer.toString(v), cx, cy + 8, radius - 25, a, 16, v >= 7 ? RED : WHITE);
-        }
-        glowText(c, display, cx, cy + 30, 33, WHITE, Paint.Align.CENTER, true, 4f);
-        text(c, "RPM", cx, cy + 52, 12, MUTED, Paint.Align.CENTER, true, false);
+    // -----------------------------------------------------------------------------------------
+    // CONNECT MODE
+    // -----------------------------------------------------------------------------------------
+
+    private void drawConnect(Canvas c) {
+        drawObdAdapterCard(c, connectCards[0]);
+        drawEcuLinkCard(c, connectCards[1]);
+        drawConnectionTypeCard(c, connectCards[2]);
+        drawDeviceActionsCard(c, connectCards[3]);
+        drawSettingsCard(c, connectCards[4]);
+        drawConnectionStatusCard(c, connectCards[5]);
+        drawRecentDevicesCard(c, connectCards[6]);
+        drawTransportOptionsCard(c, connectCards[7]);
+        drawConnectionDiagnosticsCard(c, connectCards[8]);
     }
 
-    // ---------------- Sport ----------------
-
-    private void drawSport(Canvas c) {
-        drawSportTach(c);
-        drawMetricCard(c, new RectF(26, 306, 368, 455), "THROTTLE POSITION", MetricIcon.THROTTLE,
-                pidValue(telemetry.throttle, 0x11, 0), "%", 0, 100, RED, telemetry.throttle);
-        drawMetricCard(c, new RectF(26, 468, 395, 603), "ENGINE LOAD", MetricIcon.ENGINE,
-                pidValue(telemetry.load, 0x04, 0), "%", 0, 100, RED, telemetry.load);
-        drawMetricCard(c, new RectF(912, 306, 1254, 455), "INTAKE TEMP", MetricIcon.AIR,
-                pidValue(telemetry.intake, 0x0F, 0), "°C", -20, 80, CYAN, telemetry.intake);
-        drawMetricCard(c, new RectF(885, 468, 1254, 603), "COOLANT TEMP", MetricIcon.THERMOMETER,
-                pidValue(telemetry.coolant, 0x05, 0), "°C", 50, 130, CYAN, telemetry.coolant);
+    private void drawObdAdapterCard(Canvas c, RectF r) {
+        panel(c, r, GREEN, false);
+        drawIcon(c, Icon.OBD, r.left + 44, r.top + 43, GREEN, 1.0f);
+        title(c, "OBD ADAPTER", r.left + 92, r.top + 29);
+        String name = obdState == ObdManager.State.DISCONNECTED ? "--" : nonEmpty(adapterName, selectedDeviceName());
+        infoRow(c, "Device:", name, r.left + 92, r.top + 56, 185);
+        infoRow(c, "Transport:", transportLabel(obdState == ObdManager.State.DISCONNECTED ? selectedTransport : activeTransport), r.left + 92, r.top + 80, 185);
+        infoRow(c, "Status:", stateTitle(), r.left + 92, r.top + 104, 185, obdState == ObdManager.State.ECU_CONNECTED ? GREEN : stateColor());
+        infoRow(c, "Firmware:", nonEmpty(telemetry.adapterVersion, "N/A"), r.left + 92, r.top + 128, 185);
+        infoRow(c, "Address:", nonEmpty(currentDeviceAddress(), "N/A"), r.left + 92, r.top + 152, 185);
     }
 
-    private void drawSportTach(Canvas c) {
-        float cx = 640, cy = 332, radius = 226;
-        fillCircle(c, cx, cy, radius, Color.rgb(3, 9, 17), 250);
-        strokeCircle(c, cx, cy, radius, Color.rgb(164, 197, 223), 2.2f, 230);
-        float start = 145, sweep = 250;
-        float rpm = finite(telemetry.rpm) ? telemetry.rpm : 0f;
-        drawArcTrack(c, cx, cy, radius - 10, start, sweep, Color.rgb(35, 47, 64), 14);
-        float ratio = clamp(rpm / 8000f);
-        float greenEnd = Math.min(ratio, 0.62f);
-        if (greenEnd > 0) drawArcTrack(c, cx, cy, radius - 10, start, sweep * greenEnd, Color.rgb(54, 214, 145), 14);
-        if (ratio > 0.62f) drawArcTrack(c, cx, cy, radius - 10, start + sweep * 0.62f, sweep * (Math.min(ratio, 0.78f) - 0.62f), ORANGE, 14);
-        if (ratio > 0.78f) drawArcTrack(c, cx, cy, radius - 10, start + sweep * 0.78f, sweep * (ratio - 0.78f), Color.rgb(255, 38, 49), 14);
-        for (int i = 0; i <= 40; i++) {
-            float a = start + sweep * i / 40f;
-            radialLine(c, cx, cy, radius - 25, radius - 25 - (i % 5 == 0 ? 14 : 7), a, WHITE, i % 5 == 0 ? 2.5f : 1f, i % 5 == 0 ? 240 : 140);
-        }
-        for (int v = 0; v <= 8; v++) {
-            float a = start + sweep * v / 8f;
-            polarText(c, Integer.toString(v), cx, cy, radius - 59, a, 22, WHITE);
-        }
-        text(c, "i-VTEC", cx, cy - 45, 23, WHITE, Paint.Align.CENTER, true, false);
-        text(c, "x1000 RPM", cx, cy - 20, 14, MUTED, Paint.Align.CENTER, false, false);
-        glowText(c, pidValue(telemetry.rpm, 0x0C, 0), cx, cy + 54, 72, WHITE, Paint.Align.CENTER, true, 4f);
-        text(c, "RPM", cx, cy + 91, 25, WHITE, Paint.Align.CENTER, true, false);
-
-        // speed pedestal: native widget, no background image patch
-        fillRound(c, 505, 500, 775, 604, 18, Color.rgb(9, 19, 31), 250);
-        strokeRound(c, 505, 500, 775, 604, 18, Color.rgb(103, 166, 209), 2f, 230);
-        glowLine(c, 545, 590, 735, 590, RED, 3f, 8f);
-        glowText(c, pidValue(telemetry.speed, 0x0D, 0), 625, 570, 62, WHITE, Paint.Align.CENTER, true, 4f);
-        text(c, "km/h", 704, 570, 18, WHITE, Paint.Align.LEFT, true, false);
+    private void drawEcuLinkCard(Canvas c, RectF r) {
+        panel(c, r, GREEN, false);
+        drawIcon(c, Icon.CHIP, r.left + 45, r.top + 44, GREEN, 1.0f);
+        title(c, "ECU LINK", r.left + 94, r.top + 29);
+        infoRow(c, "Protocol:", nonEmpty(telemetry.protocol, "N/A"), r.left + 94, r.top + 56, 178);
+        infoRow(c, "ECU Status:", obdState == ObdManager.State.ECU_CONNECTED ? "Connected" : "Offline", r.left + 94, r.top + 80, 178, obdState == ObdManager.State.ECU_CONNECTED ? GREEN : MUTED);
+        infoRow(c, "Response Time:", "N/A", r.left + 94, r.top + 104, 178);
+        infoRow(c, "VIN:", "N/A", r.left + 94, r.top + 128, 178);
+        infoRow(c, "ECU Type:", "N/A", r.left + 94, r.top + 152, 178);
     }
 
-    // ---------------- Diagnostics ----------------
-
-    private void drawDiagnostics(Canvas c) {
-        // Header scene ends at 270; native widgets start below it.
-        drawInfoCard(c, new RectF(18, 258, 390, 365), "OBD CONNECTION", MetricIcon.OBD,
-                obdState == ObdManager.State.ECU_CONNECTED ? "Connected" : stateFriendly(),
-                obdState == ObdManager.State.ECU_CONNECTED ? GREEN : (obdState == ObdManager.State.ERROR ? RED : CYAN),
-                nonEmpty(adapterName, transportLabel(obdTransport)),
-                telemetry.protocol.isEmpty() ? obdDetail : "Protocol: " + telemetry.protocol);
-
-        String ecuLine = obdState == ObdManager.State.ECU_CONNECTED ? "ECU Online" : "Offline";
-        String dtcLine = "Waiting for DTC read";
-        if (dtcResult.status == ObdManager.DtcStatus.NO_CODES) dtcLine = "No stored fault codes";
-        else if (dtcResult.status == ObdManager.DtcStatus.HAS_CODES) dtcLine = dtcResult.codes.size() + " stored DTC";
-        else if (dtcResult.status == ObdManager.DtcStatus.ERROR) dtcLine = "DTC read unavailable";
-        drawInfoCard(c, new RectF(400, 258, 735, 365), "ECU STATUS", MetricIcon.CHIP,
-                ecuLine,
-                obdState == ObdManager.State.ECU_CONNECTED ? WHITE : MUTED,
-                obdState == ObdManager.State.ECU_CONNECTED ? dtcLine : "Waiting for ECU",
-                obdState == ObdManager.State.ECU_CONNECTED ? "Identity not assumed from generic OBD-II" : "Connect adapter first");
-
-        drawConnectionSummary(c, new RectF(745, 258, 1018, 365));
-
-        float y = 375;
-        float h = 98;
-        float gap = 6;
-        float w = (1248f - 5 * gap) / 6f;
-        float x = 16;
-        drawMetricCard(c, new RectF(x, y, x+w, y+h), "BATTERY VOLTAGE", MetricIcon.BATTERY, pidValue(telemetry.voltage, 0x42, 1), "V", 10, 16, CYAN, telemetry.voltage); x += w+gap;
-        drawMetricCard(c, new RectF(x, y, x+w, y+h), "COOLANT TEMP", MetricIcon.THERMOMETER, pidValue(telemetry.coolant, 0x05, 0), "°C", 50, 130, CYAN, telemetry.coolant); x += w+gap;
-        drawMetricCard(c, new RectF(x, y, x+w, y+h), "INTAKE TEMP", MetricIcon.AIR, pidValue(telemetry.intake, 0x0F, 0), "°C", -20, 80, CYAN, telemetry.intake); x += w+gap;
-        drawMetricCard(c, new RectF(x, y, x+w, y+h), "THROTTLE POSITION", MetricIcon.THROTTLE, pidValue(telemetry.throttle, 0x11, 0), "%", 0, 100, CYAN, telemetry.throttle); x += w+gap;
-        drawMetricCard(c, new RectF(x, y, x+w, y+h), "ENGINE LOAD", MetricIcon.ENGINE, pidValue(telemetry.load, 0x04, 0), "%", 0, 100, CYAN, telemetry.load); x += w+gap;
-        drawMetricCard(c, new RectF(x, y, x+w, y+h), "FUEL LEVEL", MetricIcon.FUEL, pidValue(telemetry.fuel, 0x2F, 0), "%", 0, 100, CYAN, telemetry.fuel);
-
-        drawDtcPanel(c, new RectF(16, 483, 320, 614));
-        drawReadinessPanel(c, new RectF(330, 483, 795, 614));
-        drawLivePanel(c, new RectF(805, 483, 1264, 614));
+    private void drawConnectionTypeCard(Canvas c, RectF r) {
+        panel(c, r, GREEN, false);
+        drawIcon(c, Icon.RADIO, r.left + 30, r.top + 29, GREEN, .72f);
+        title(c, "CONNECTION TYPE", r.left + 67, r.top + 29);
+        float gap = 10, left = r.left + 14, top = r.top + 58, h = 96;
+        float w = (r.width() - 28 - gap * 2) / 3f;
+        transportChoice(c, new RectF(left, top, left + w, top + h), ObdManager.Transport.BLE, "BLE 4.0", Icon.BLUETOOTH);
+        transportChoice(c, new RectF(left + w + gap, top, left + w * 2 + gap, top + h), ObdManager.Transport.BLUETOOTH, "BT 3.0", Icon.BLUETOOTH);
+        transportChoice(c, new RectF(left + (w + gap) * 2, top, r.right - 14, top + h), ObdManager.Transport.WIFI, "Wi-Fi", Icon.WIFI);
     }
 
-    private void drawConnectionSummary(Canvas c, RectF r) {
-        drawPanel(c, r, CYAN, false);
-        text(c, "Connection type", r.left + 18, r.top + 28, 13, MUTED, Paint.Align.LEFT, false, false);
-        text(c, transportLabel(selectorTransport), r.right - 18, r.top + 28, 14, WHITE, Paint.Align.RIGHT, true, false);
-        strokeLine(c, r.left + 14, r.top + 41, r.right - 14, r.top + 41, Color.argb(90, 85, 175, 214), 1);
-        text(c, "Auto reconnect", r.left + 18, r.top + 66, 13, MUTED, Paint.Align.LEFT, false, false);
-        drawToggle(c, r.right - 45, r.top + 61, autoReconnect);
-        strokeLine(c, r.left + 14, r.top + 78, r.right - 14, r.top + 78, Color.argb(90, 85, 175, 214), 1);
-        text(c, "Tap for adapter settings", r.left + 18, r.top + 99, 12, CYAN, Paint.Align.LEFT, true, false);
+    private void transportChoice(Canvas c, RectF r, ObdManager.Transport t, String name, Icon icon) {
+        boolean active = selectedTransport == t;
+        fill.setColor(active ? Color.argb(92, 0, 120, 71) : Color.argb(165, 5, 22, 29));
+        c.drawRoundRect(r, 7, 7, fill);
+        stroke.setColor(active ? GREEN : Color.rgb(72, 100, 113)); stroke.setStrokeWidth(active ? 1.8f : 1f);
+        c.drawRoundRect(r, 7, 7, stroke);
+        drawIcon(c, icon, r.centerX(), r.top + 32, active ? GREEN : Color.rgb(192, 210, 224), .62f);
+        label(c, name, r.centerX(), r.top + 67, 15, WHITE, Paint.Align.CENTER, true, false);
+        strokeCircle(c, r.centerX(), r.bottom - 14, 7, active ? GREEN : Color.rgb(141, 169, 187), active ? 2.4f : 1.4f);
+        if (active) circle(c, r.centerX(), r.bottom - 14, 3.2f, GREEN);
     }
 
-    private void drawDtcPanel(Canvas c, RectF r) {
-        drawPanel(c, r, CYAN, false);
-        drawIcon(c, MetricIcon.ENGINE, r.left + 28, r.top + 30, CYAN, 0.85f);
-        text(c, "FAULT CODES (DTC)", r.left + 60, r.top + 29, 14, WHITE, Paint.Align.LEFT, true, false);
-        if (obdState != ObdManager.State.ECU_CONNECTED || dtcResult.status == ObdManager.DtcStatus.NOT_READ) {
-            drawCheckCircle(c, r.left + 52, r.top + 82, DIM, false);
-            text(c, "Not available", r.left + 92, r.top + 80, 17, MUTED, Paint.Align.LEFT, true, false);
-            text(c, obdState == ObdManager.State.ECU_CONNECTED ? "Stored DTC not read yet" : "Connect ECU to read DTC",
-                    r.left + 92, r.top + 103, 11, DIM, Paint.Align.LEFT, false, false);
-        } else if (dtcResult.status == ObdManager.DtcStatus.NO_CODES) {
-            drawCheckCircle(c, r.left + 52, r.top + 82, GREEN, true);
-            text(c, "No stored fault codes", r.left + 92, r.top + 80, 17, GREEN, Paint.Align.LEFT, true, false);
-            text(c, "Mode 03 read completed successfully", r.left + 92, r.top + 103, 10.5f, MUTED, Paint.Align.LEFT, false, false);
-        } else if (dtcResult.status == ObdManager.DtcStatus.HAS_CODES) {
-            drawCheckCircle(c, r.left + 52, r.top + 82, RED, false);
-            text(c, dtcResult.codes.size() + " stored fault code(s)", r.left + 92, r.top + 78, 17, RED, Paint.Align.LEFT, true, false);
-            text(c, join(dtcResult.codes, 3), r.left + 92, r.top + 103, 11, WHITE, Paint.Align.LEFT, false, false);
-        } else {
-            drawCheckCircle(c, r.left + 52, r.top + 82, ORANGE, false);
-            text(c, "DTC read failed", r.left + 92, r.top + 80, 17, ORANGE, Paint.Align.LEFT, true, false);
-            text(c, truncate(dtcResult.detail, 34), r.left + 92, r.top + 103, 10.5f, MUTED, Paint.Align.LEFT, false, false);
-        }
+    private void drawDeviceActionsCard(Canvas c, RectF r) {
+        panel(c, r, GREEN, false);
+        drawIcon(c, Icon.GEAR, r.left + 30, r.top + 29, GREEN, .68f);
+        title(c, "DEVICE ACTIONS", r.left + 67, r.top + 29);
+        float l = r.left + 14, t = r.top + 54, gap = 8;
+        float w = (r.width() - 28 - gap) / 2f;
+        actionButton(c, new RectF(l, t, l + w, t + 43), "Scan", Icon.SEARCH, false);
+        actionButton(c, new RectF(l + w + gap, t, r.right - 14, t + 43), "Select", Icon.LIST, false);
+        actionButton(c, new RectF(l, t + 50, l + w, t + 93), "Connect", Icon.LINK, true);
+        actionButton(c, new RectF(l + w + gap, t + 50, r.right - 14, t + 93), "Disconnect", Icon.LINK, false);
+        actionButton(c, new RectF(l, t + 100, l + w, t + 143), "Retry", Icon.CLOCK, false);
+        actionButton(c, new RectF(l + w + gap, t + 100, r.right - 14, t + 143), "View Log", Icon.LOG, false);
     }
 
-    private void drawReadinessPanel(Canvas c, RectF r) {
-        drawPanel(c, r, CYAN, false);
-        drawIcon(c, MetricIcon.CLIPBOARD, r.left + 27, r.top + 29, CYAN, 0.8f);
-        text(c, "READINESS MONITORS", r.left + 58, r.top + 28, 14, WHITE, Paint.Align.LEFT, true, false);
-        if (!readiness.available || obdState != ObdManager.State.ECU_CONNECTED) {
-            text(c, "N/A — waiting for a valid PID 01 response", r.left + 35, r.top + 75, 15, MUTED, Paint.Align.LEFT, true, false);
+    private void actionButton(Canvas c, RectF r, String name, Icon icon, boolean primary) {
+        fill.setColor(primary ? Color.argb(84, 0, 135, 75) : Color.argb(160, 7, 25, 32));
+        c.drawRoundRect(r, 6, 6, fill);
+        stroke.setColor(primary ? GREEN : Color.rgb(72, 101, 114)); stroke.setStrokeWidth(primary ? 1.8f : 1f);
+        c.drawRoundRect(r, 6, 6, stroke);
+        drawIcon(c, icon, r.left + 28, r.centerY(), primary ? GREEN : Color.rgb(210, 225, 234), .52f);
+        label(c, name, r.left + 58, r.centerY() + 5, 14, WHITE, Paint.Align.LEFT, false, false);
+    }
+
+    private void drawSettingsCard(Canvas c, RectF r) {
+        panel(c, r, GREEN, false);
+        drawIcon(c, Icon.GEAR, r.left + 30, r.top + 29, GREEN, .68f);
+        title(c, "SETTINGS", r.left + 67, r.top + 29);
+        float y = r.top + 58;
+        settingToggle(c, r, y, "Auto reconnect", autoReconnect); y += 26;
+        settingValue(c, r, y, "Wi-Fi Host", wifiHost); y += 26;
+        settingValue(c, r, y, "Wi-Fi Port", Integer.toString(wifiPort)); y += 26;
+        settingValue(c, r, y, "Connection Timeout", connectionTimeoutMs + " ms"); y += 26;
+        settingToggle(c, r, y, "Auto-detect Protocol", autoDetectProtocol); y += 26;
+        settingToggle(c, r, y, "Low Power Mode", lowPowerMode);
+    }
+
+    private void settingToggle(Canvas c, RectF r, float y, String name, boolean on) {
+        label(c, name, r.left + 24, y + 4, 12.5f, MUTED, Paint.Align.LEFT, false, false);
+        drawToggle(c, r.right - 45, y, on);
+        line(c, r.left + 24, y + 13, r.right - 18, y + 13, Color.argb(80, 102, 132, 145), 1f);
+    }
+
+    private void settingValue(Canvas c, RectF r, float y, String name, String value) {
+        label(c, name, r.left + 24, y + 4, 12.5f, MUTED, Paint.Align.LEFT, false, false);
+        fill.setColor(Color.argb(160, 12, 31, 39));
+        c.drawRoundRect(r.right - 177, y - 12, r.right - 22, y + 9, 4, 4, fill);
+        stroke.setColor(Color.rgb(56, 85, 98)); stroke.setStrokeWidth(1f);
+        c.drawRoundRect(r.right - 177, y - 12, r.right - 22, y + 9, 4, 4, stroke);
+        label(c, truncate(value, 18), r.right - 167, y + 4, 12.5f, Color.rgb(195, 216, 229), Paint.Align.LEFT, false, false);
+        line(c, r.left + 24, y + 13, r.right - 18, y + 13, Color.argb(80, 102, 132, 145), 1f);
+    }
+
+    private void drawConnectionStatusCard(Canvas c, RectF r) {
+        panel(c, r, GREEN, false);
+        drawIcon(c, Icon.PULSE, r.left + 30, r.top + 29, GREEN, .68f);
+        title(c, "CONNECTION STATUS", r.left + 67, r.top + 29);
+        int sc = stateColor();
+        circle(c, r.right - 126, r.top + 27, 6, sc);
+        label(c, stateTitle(), r.right - 18, r.top + 31, 13, sc, Paint.Align.RIGHT, true, false);
+        float cx = r.left + 92, cy = r.top + 104;
+        strokeCircle(c, cx, cy, 40, Color.argb(130, 26, 208, 126), 2.5f);
+        strokeCircle(c, cx, cy, 31, sc, 3f);
+        if (obdState == ObdManager.State.ECU_CONNECTED) drawCheck(c, cx, cy, sc, 1.15f);
+        else drawIcon(c, Icon.LINK, cx, cy, sc, .7f);
+        label(c, obdState == ObdManager.State.ECU_CONNECTED ? "Healthy link" : "Not connected", cx, cy + 58, 12.5f, sc, Paint.Align.CENTER, true, false);
+
+        float lx = r.left + 178, y = r.top + 63;
+        infoRow(c, "Session:", sessionTime(), lx, y, 112); y += 23;
+        infoRow(c, "Transport:", transportLabel(activeTransport), lx, y, 112); y += 23;
+        infoRow(c, "Protocol:", nonEmpty(telemetry.protocol, "N/A"), lx, y, 112); y += 23;
+        infoRow(c, "Last Link:", lastConnectedAtMs > 0 ? clockFormat.format(new Date(lastConnectedAtMs)) : "--", lx, y, 112); y += 23;
+        infoRow(c, "Detail:", truncate(obdDetail, 18), lx, y, 112);
+    }
+
+    private String sessionTime() {
+        if (obdState != ObdManager.State.ECU_CONNECTED || connectedAtMs <= 0) return "--";
+        long total = Math.max(0, (System.currentTimeMillis() - connectedAtMs) / 1000L);
+        return String.format(Locale.US, "%02d:%02d:%02d", total / 3600, (total / 60) % 60, total % 60);
+    }
+
+    private void drawRecentDevicesCard(Canvas c, RectF r) {
+        panel(c, r, GREEN, false);
+        drawIcon(c, Icon.CLOCK, r.left + 30, r.top + 27, GREEN, .65f);
+        title(c, "RECENT DEVICES", r.left + 67, r.top + 28);
+        List<ObdManager.DeviceInfo> list = visibleDevicePool();
+        float y = r.top + 56;
+        if (list.isEmpty()) {
+            label(c, "No devices discovered yet", r.left + 24, y + 20, 13, MUTED, Paint.Align.LEFT, false, false);
+            label(c, "Use Scan above", r.left + 24, y + 43, 11.5f, DIM, Paint.Align.LEFT, false, false);
             return;
         }
-        List<Map.Entry<String, ObdManager.MonitorState>> entries = new ArrayList<>(readiness.monitors.entrySet());
-        float startX = r.left + 26, startY = r.top + 58;
-        int max = Math.min(entries.size(), 12);
-        for (int i = 0; i < max; i++) {
-            int col = i / 4;
-            int row = i % 4;
-            float xx = startX + col * 145;
-            float yy = startY + row * 20;
-            Map.Entry<String, ObdManager.MonitorState> e = entries.get(i);
-            ObdManager.MonitorState st = e.getValue();
-            int color = st == ObdManager.MonitorState.COMPLETE ? GREEN : st == ObdManager.MonitorState.INCOMPLETE ? ORANGE : DIM;
-            fillCircle(c, xx, yy - 4, 6, color, 255);
-            String mark = st == ObdManager.MonitorState.COMPLETE ? "✓" : st == ObdManager.MonitorState.INCOMPLETE ? "!" : "–";
-            text(c, mark, xx, yy, 9, BG, Paint.Align.CENTER, true, false);
-            text(c, e.getKey(), xx + 13, yy, 10.2f, st == ObdManager.MonitorState.UNSUPPORTED ? DIM : WHITE, Paint.Align.LEFT, false, false);
-        }
-    }
-
-    private void drawLivePanel(Canvas c, RectF r) {
-        drawPanel(c, r, CYAN, false);
-        drawIcon(c, MetricIcon.BARS, r.left + 28, r.top + 29, CYAN, 0.8f);
-        text(c, "LIVE SENSOR DATA", r.left + 58, r.top + 28, 14, WHITE, Paint.Align.LEFT, true, false);
-        float y = r.top + 57;
-        sensorRow(c, r.left + 28, r.left + 230, y, "Vehicle Speed", pidUnitValue(telemetry.speed, 0x0D, "km/h", 0));
-        sensorRow(c, r.left + 28, r.left + 230, y + 20, "RPM", pidUnitValue(telemetry.rpm, 0x0C, "rpm", 0));
-        sensorRow(c, r.left + 28, r.left + 230, y + 40, "Coolant Temp", pidUnitValue(telemetry.coolant, 0x05, "°C", 0));
-        sensorRow(c, r.left + 28, r.left + 230, y + 60, "Intake Temp", pidUnitValue(telemetry.intake, 0x0F, "°C", 0));
-        sensorRow(c, r.left + 255, r.right - 24, y, "Throttle Position", pidUnitValue(telemetry.throttle, 0x11, "%", 0));
-        sensorRow(c, r.left + 255, r.right - 24, y + 20, "Engine Load", pidUnitValue(telemetry.load, 0x04, "%", 0));
-        sensorRow(c, r.left + 255, r.right - 24, y + 40, "MAF", pidUnitValue(telemetry.maf, 0x10, "g/s", 1));
-        sensorRow(c, r.left + 255, r.right - 24, y + 60, "Fuel Level", pidUnitValue(telemetry.fuel, 0x2F, "%", 0));
-    }
-
-    private void sensorRow(Canvas c, float labelX, float valueX, float y, String label, String value) {
-        text(c, label, labelX, y, 10.5f, MUTED, Paint.Align.LEFT, false, false);
-        text(c, value, valueX, y, 10.5f, WHITE, Paint.Align.RIGHT, true, false);
-    }
-
-    // ---------------- Reusable widgets ----------------
-
-    private enum MetricIcon { THERMOMETER, BATTERY, FUEL, AIR, ENGINE, THROTTLE, OBD, CHIP, BARS, CLIPBOARD }
-
-    private void drawMetricCard(Canvas c, RectF r, String title, MetricIcon icon,
-                                String display, String unit, float min, float max, int accent, float raw) {
-        drawPanel(c, r, accent, false);
-        drawIcon(c, icon, r.left + 34, r.top + 37, accent, r.height() < 110 ? 0.7f : 1f);
-        text(c, title, r.left + 72, r.top + 29, r.height() < 110 ? 10.8f : 14f, WHITE, Paint.Align.LEFT, true, false);
-        float valueY = r.height() < 110 ? r.top + 59 : r.top + 82;
-        float valueX = r.centerX() + 12;
-        glowText(c, display, valueX, valueY, r.height() < 110 ? 27f : 39f, WHITE, Paint.Align.CENTER, true, 3.5f);
-        float textWidth = measure(display, r.height() < 110 ? 27f : 39f, true);
-        text(c, unit, valueX + textWidth * 0.5f + 9, valueY, r.height() < 110 ? 11f : 15f, WHITE, Paint.Align.LEFT, true, false);
-        float barY = r.bottom - (r.height() < 110 ? 20 : 25);
-        drawBar(c, r.left + 18, barY, r.right - 18, barY + 8, raw, min, max, accent);
-        text(c, formatTick(min), r.left + 18, r.bottom - 4, 9.5f, MUTED, Paint.Align.LEFT, false, false);
-        text(c, formatTick((min + max) * 0.5f), r.centerX(), r.bottom - 4, 9.5f, MUTED, Paint.Align.CENTER, false, false);
-        text(c, formatTick(max), r.right - 18, r.bottom - 4, 9.5f, MUTED, Paint.Align.RIGHT, false, false);
-        text(c, "›", r.right - 18, r.top + 31, 25, WHITE, Paint.Align.CENTER, false, false);
-    }
-
-    private void drawInfoCard(Canvas c, RectF r, String title, MetricIcon icon, String line1, int line1Color, String line2, String line3) {
-        drawPanel(c, r, CYAN, false);
-        drawIcon(c, icon, r.left + 38, r.top + 45, CYAN, 1f);
-        text(c, title, r.left + 82, r.top + 27, 14, WHITE, Paint.Align.LEFT, true, false);
-        text(c, line1, r.left + 82, r.top + 55, 19, line1Color, Paint.Align.LEFT, true, false);
-        text(c, truncate(line2, 33), r.left + 82, r.top + 79, 11.5f, WHITE, Paint.Align.LEFT, false, false);
-        text(c, truncate(line3, 38), r.left + 82, r.top + 98, 10.5f, MUTED, Paint.Align.LEFT, false, false);
-        text(c, "›", r.right - 20, r.top + 32, 26, WHITE, Paint.Align.CENTER, false, false);
-    }
-
-    private void drawPanel(Canvas c, RectF r, int accent, boolean active) {
-        fillRound(c, r.left, r.top, r.right, r.bottom, 8, PANEL, 250);
-        strokeRound(c, r.left, r.top, r.right, r.bottom, 8, Color.argb(215, Color.red(BORDER), Color.green(BORDER), Color.blue(BORDER)), 1.4f, 255);
-        if (active) {
-            p.setStyle(Paint.Style.STROKE);
-            p.setStrokeWidth(2.2f);
-            p.setColor(accent);
-            p.setShadowLayer(10f, 0, 0, accent);
-            c.drawRoundRect(r, 8, 8, p);
-            p.clearShadowLayer();
-        }
-    }
-
-    private void drawBar(Canvas c, float l, float t, float r, float b, float raw, float min, float max, int accent) {
-        fillRound(c, l, t, r, b, 4, Color.rgb(23, 73, 122), 255);
-        if (!finite(raw)) return;
-        float ratio = clamp((raw - min) / (max - min));
-        if (ratio <= 0) return;
-        LinearGradient g = new LinearGradient(l, t, r, t, CYAN, accent, Shader.TileMode.CLAMP);
-        p.setShader(g);
-        p.setStyle(Paint.Style.FILL);
-        p.setShadowLayer(5f, 0, 0, accent);
-        c.drawRoundRect(new RectF(l, t, l + (r - l) * ratio, b), 4, 4, p);
-        p.clearShadowLayer();
-        p.setShader(null);
-    }
-
-    // ---------------- Bottom nav ----------------
-
-    private void drawModeTabs(Canvas c) {
-        float y1 = 624, y2 = 710, margin = 16, gap = 8;
-        float w = (1280 - margin * 2 - gap * 2) / 3f;
-        for (int i = 0; i < 3; i++) {
-            float l = margin + i * (w + gap), r = l + w;
-            Mode m = i == 0 ? Mode.STREET : i == 1 ? Mode.SPORT : Mode.DIAGNOSTICS;
-            boolean active = mode == m;
-            int accent = m == Mode.STREET ? GREEN : m == Mode.SPORT ? RED : CYAN;
-            drawPanel(c, new RectF(l, y1, r, y2), accent, active);
-            if (active) {
-                LinearGradient g = new LinearGradient(l, y1, r, y2, Color.argb(85, Color.red(accent), Color.green(accent), Color.blue(accent)), Color.TRANSPARENT, Shader.TileMode.CLAMP);
-                p.setShader(g); p.setStyle(Paint.Style.FILL); c.drawRoundRect(new RectF(l, y1, r, y2), 8, 8, p); p.setShader(null);
+        int start = Math.min(deviceScroll, Math.max(0, list.size() - 4));
+        for (int row = 0; row < 4 && start + row < list.size(); row++) {
+            ObdManager.DeviceInfo d = list.get(start + row);
+            boolean selected = d.key().equals(selectedDeviceKey) || (selectedDeviceKey.isEmpty() && d.address.equals(connectedAddress));
+            RectF rr = new RectF(r.left + 14, y + row * 27, r.right - 14, y + row * 27 + 23);
+            if (selected) {
+                fill.setColor(Color.argb(80, 0, 155, 83)); c.drawRoundRect(rr, 4, 4, fill);
+                stroke.setColor(GREEN); stroke.setStrokeWidth(1f); c.drawRoundRect(rr, 4, 4, stroke);
             }
-            if (m == Mode.STREET) drawRoadIcon(c, l + 85, 666, active ? WHITE : MUTED);
-            else if (m == Mode.SPORT) drawFlagIcon(c, l + 85, 666, active ? WHITE : MUTED);
-            else drawGearIcon(c, l + 85, 666, active ? WHITE : MUTED);
-            String t = m == Mode.STREET ? "STREET" : m == Mode.SPORT ? "SPORT" : "DIAGNOSTICS";
-            String sub = m == Mode.STREET ? "COMFORT EVERYDAY" : m == Mode.SPORT ? "MORE RESPONSE" : "KNOW YOUR CAR";
-            text(c, t, l + 150, 658, 21, active ? WHITE : MUTED, Paint.Align.LEFT, true, false);
-            text(c, sub, l + 150, 684, 11, active ? WHITE : DIM, Paint.Align.LEFT, false, true);
+            circle(c, rr.left + 13, rr.centerY(), 4.2f, selected ? GREEN : Color.rgb(167, 192, 207));
+            label(c, truncate(d.name, 23), rr.left + 28, rr.centerY() + 4, 11.5f, selected ? WHITE : MUTED, Paint.Align.LEFT, false, false);
+            label(c, truncate(d.address, 19), rr.right - 74, rr.centerY() + 4, 10.5f, Color.rgb(156, 181, 197), Paint.Align.RIGHT, false, false);
+            label(c, d.transport == ObdManager.Transport.BLE ? "BLE" : "BT", rr.right - 10, rr.centerY() + 4, 10, selected ? GREEN : DIM, Paint.Align.RIGHT, true, false);
         }
     }
 
-    // ---------------- Connection selector ----------------
+    private void drawTransportOptionsCard(Canvas c, RectF r) {
+        panel(c, r, GREEN, false);
+        drawIcon(c, Icon.RADIO, r.left + 30, r.top + 27, GREEN, .6f);
+        title(c, "TRANSPORT OPTIONS", r.left + 67, r.top + 28);
+        transportOptionRow(c, r, r.top + 58, ObdManager.Transport.AUTO, "AUTO", "Verified adapter only");
+        transportOptionRow(c, r, r.top + 85, ObdManager.Transport.BLE, "BLE 4.0", "Low power, direct GATT");
+        transportOptionRow(c, r, r.top + 112, ObdManager.Transport.BLUETOOTH, "Bluetooth 3.0", "Classic SPP fallback");
+        transportOptionRow(c, r, r.top + 139, ObdManager.Transport.WIFI, "Wi-Fi", "TCP endpoint");
+    }
 
-    private void drawConnectionPanel(Canvas c) {
-        fillRect(c, 0, 0, 1280, 720, Color.BLACK, 150);
-        RectF r = new RectF(250, 92, 1030, 620);
-        fillRound(c, r.left, r.top, r.right, r.bottom, 14, Color.rgb(4, 20, 32), 252);
-        strokeRound(c, r.left, r.top, r.right, r.bottom, 14, CYAN, 1.5f, 230);
-        text(c, "OBD CONNECTION", r.left + 28, r.top + 40, 24, WHITE, Paint.Align.LEFT, true, false);
-        text(c, "×", r.right - 34, r.top + 40, 30, MUTED, Paint.Align.CENTER, false, false);
+    private void transportOptionRow(Canvas c, RectF r, float y, ObdManager.Transport transport, String name, String detail) {
+        boolean selected = selectedTransport == transport;
+        strokeCircle(c, r.left + 30, y - 4, 7, selected ? GREEN : Color.rgb(160, 185, 201), 1.6f);
+        if (selected) circle(c, r.left + 30, y - 4, 3, GREEN);
+        label(c, name, r.left + 54, y, 12.5f, selected ? GREEN : WHITE, Paint.Align.LEFT, selected, false);
+        label(c, detail, r.right - 18, y, 10.5f, MUTED, Paint.Align.RIGHT, false, false);
+    }
 
-        text(c, "Transport", r.left + 28, r.top + 73, 12, MUTED, Paint.Align.LEFT, false, false);
-        ObdManager.Transport[] transports = new ObdManager.Transport[]{ObdManager.Transport.AUTO, ObdManager.Transport.BLUETOOTH, ObdManager.Transport.BLE, ObdManager.Transport.WIFI};
-        String[] labels = new String[]{"AUTO", "BT CLASSIC", "BLE", "WI-FI"};
-        for (int i = 0; i < transports.length; i++) {
-            float l = r.left + 28 + i * 170;
-            boolean sel = selectorTransport == transports[i];
-            fillRound(c, l, r.top + 86, l + 152, r.top + 126, 7, sel ? Color.rgb(13, 83, 128) : PANEL2, 255);
-            strokeRound(c, l, r.top + 86, l + 152, r.top + 126, 7, sel ? CYAN : BORDER, 1.1f, 220);
-            text(c, labels[i], l + 76, r.top + 112, 12.5f, WHITE, Paint.Align.CENTER, true, false);
+    private void drawConnectionDiagnosticsCard(Canvas c, RectF r) {
+        panel(c, r, GREEN, false);
+        drawIcon(c, Icon.PULSE, r.left + 30, r.top + 27, GREEN, .65f);
+        title(c, "CONNECTION DIAGNOSTICS", r.left + 67, r.top + 28);
+        int rank = stateRank(obdState);
+        diagStep(c, r, r.top + 58, "Adapter detected", rank >= 2);
+        diagStep(c, r, r.top + 84, "Transport initialized", rank >= 4);
+        diagStep(c, r, r.top + 110, "Protocol handshake", rank >= 5);
+        diagStep(c, r, r.top + 136, "ECU responding", rank >= 7);
+        boolean dataActive = obdState == ObdManager.State.ECU_CONNECTED && hasAnyFreshTelemetry();
+        diagStep(c, r, r.top + 162, "Data stream active", dataActive);
+    }
+
+    private int stateRank(ObdManager.State s) {
+        switch (s) {
+            case SEARCHING: return 1;
+            case ADAPTER_FOUND: return 2;
+            case CONNECTING: return 3;
+            case INITIALIZING: return 5;
+            case ECU_CONNECTING: return 6;
+            case ECU_CONNECTED: return 7;
+            default: return 0;
+        }
+    }
+
+    private void diagStep(Canvas c, RectF r, float y, String name, boolean ok) {
+        strokeCircle(c, r.left + 31, y - 4, 7, ok ? GREEN : Color.rgb(94, 119, 132), 1.5f);
+        if (ok) drawCheck(c, r.left + 31, y - 4, GREEN, .34f);
+        label(c, name, r.left + 55, y, 12, ok ? MUTED : DIM, Paint.Align.LEFT, false, false);
+        label(c, ok ? "OK" : "--", r.right - 20, y, 11.5f, ok ? GREEN : DIM, Paint.Align.RIGHT, true, false);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // SPORT MODE
+    // -----------------------------------------------------------------------------------------
+
+    private void drawSport(Canvas c) {
+        drawTachometer(c);
+        drawSportMetric(c, sportLeftBig, sportSlots[0], true);
+        drawSportMetric(c, sportRightBig, sportSlots[1], true);
+        drawSportMetric(c, sportBottomLeft, sportSlots[2], false);
+        drawSportMetric(c, sportBottomMid, sportSlots[3], false);
+        drawSportMetric(c, sportBottomRight, sportSlots[4], false);
+    }
+
+    private void drawShiftLights(Canvas c) {
+        float left = 335, top = 78, gap = 6, w = 36, h = 12;
+        float rpm = freshRaw(telemetry.rpm);
+        int lit = Float.isNaN(rpm) ? 0 : Math.max(0, Math.min(16, (int) (rpm / 500f)));
+        for (int i = 0; i < 16; i++) {
+            float l = left + i * (w + gap);
+            int color = i < 10 ? GREEN : i < 13 ? YELLOW : RED;
+            fill.setColor(i < lit ? color : Color.rgb(16, 26, 31));
+            c.drawRoundRect(l, top, l + w, top + h, 3, 3, fill);
+            stroke.setColor(i < lit ? Color.argb(210, Color.red(color), Color.green(color), Color.blue(color)) : Color.rgb(67, 82, 89));
+            stroke.setStrokeWidth(1f); c.drawRoundRect(l, top, l + w, top + h, 3, 3, stroke);
+        }
+    }
+
+    private void drawTachometer(Canvas c) {
+        final float cx = 640, cy = 255, radius = 205;
+        fill.setColor(Color.argb(244, 2, 10, 13)); c.drawCircle(cx, cy, radius, fill);
+        strokeCircle(c, cx, cy, radius, Color.rgb(170, 184, 190), 1.8f);
+        strokeCircle(c, cx, cy, radius - 9, Color.argb(130, 37, 181, 111), 1.2f);
+
+        float rpm = freshRaw(telemetry.rpm);
+        float value = Float.isNaN(rpm) ? 0f : rpm;
+        float start = 145f, sweep = 250f;
+        arc(c, cx, cy, radius - 14, start, sweep, Color.rgb(28, 42, 47), 14f);
+        float progress = Math.max(0f, Math.min(1f, value / 8000f));
+        float greenSweep = Math.min(progress, 0.65f) * sweep;
+        if (greenSweep > 0) arc(c, cx, cy, radius - 14, start, greenSweep, GREEN, 14f);
+        if (progress > 0.65f) arc(c, cx, cy, radius - 14, start + .65f * sweep, Math.min(progress - .65f, .16f) * sweep, YELLOW, 14f);
+        if (progress > 0.81f) arc(c, cx, cy, radius - 14, start + .81f * sweep, (progress - .81f) * sweep, RED, 14f);
+
+        for (int i = 0; i <= 40; i++) {
+            float a = start + sweep * i / 40f;
+            float len = i % 5 == 0 ? 17 : 8;
+            int color = i >= 33 ? RED : i >= 27 ? YELLOW : WHITE;
+            radialLine(c, cx, cy, radius - 24, radius - 24 - len, a, color, i % 5 == 0 ? 2.4f : 1f);
+        }
+        for (int i = 0; i <= 8; i++) {
+            float a = start + sweep * i / 8f;
+            polarLabel(c, Integer.toString(i), cx, cy, radius - 58, a, 21, i >= 7 ? RED : WHITE);
         }
 
-        text(c, "Auto reconnect", r.left + 28, r.top + 154, 13, MUTED, Paint.Align.LEFT, false, false);
-        drawToggle(c, r.left + 150, r.top + 150, autoReconnect);
-        if (obdState != ObdManager.State.DISCONNECTED) {
-            drawActionButton(c, r.right - 188, r.top + 136, r.right - 28, r.top + 174, "DISCONNECT", RED);
-        }
+        label(c, "i-VTEC", cx, cy - 36, 16, MUTED, Paint.Align.CENTER, true, false);
+        label(c, "x1000 RPM", cx, cy - 16, 11, DIM, Paint.Align.CENTER, false, false);
+        String rpmText = valueText(telemetry.rpm, 0x0C, 0);
+        glowLabel(c, rpmText, cx, cy + 49, 66, WHITE, Paint.Align.CENTER, true, 2.2f);
+        label(c, "RPM", cx, cy + 80, 21, MUTED, Paint.Align.CENTER, true, false);
 
-        if (selectorTransport == ObdManager.Transport.AUTO) {
-            text(c, "AUTO uses only an adapter that previously completed a real ECU handshake.", r.left + 28, r.top + 205, 13, MUTED, Paint.Align.LEFT, false, false);
-            text(c, "If none is saved, choose BT / BLE / Wi-Fi and verify it once.", r.left + 28, r.top + 230, 13, MUTED, Paint.Align.LEFT, false, false);
-            drawActionButton(c, r.left + 28, r.bottom - 70, r.right - 28, r.bottom - 24, "CONNECT SAVED ADAPTER", GREEN);
-        } else if (selectorTransport == ObdManager.Transport.WIFI) {
-            text(c, "Wi-Fi ELM327 endpoint", r.left + 28, r.top + 205, 15, WHITE, Paint.Align.LEFT, true, false);
-            text(c, wifiHost + " : " + wifiPort, r.left + 28, r.top + 235, 18, CYAN, Paint.Align.LEFT, true, false);
-            text(c, "Tap EDIT ENDPOINT to change host/port.", r.left + 28, r.top + 263, 12, MUTED, Paint.Align.LEFT, false, false);
-            drawActionButton(c, r.left + 28, r.bottom - 70, r.left + 330, r.bottom - 24, "EDIT ENDPOINT", CYAN);
-            drawActionButton(c, r.left + 346, r.bottom - 70, r.right - 28, r.bottom - 24, "CONNECT WI-FI", GREEN);
+        // Integrated speed pedestal from the approved reference.
+        path.reset();
+        path.moveTo(cx - 154, cy + 136);
+        path.lineTo(cx - 108, cy + 98);
+        path.lineTo(cx + 108, cy + 98);
+        path.lineTo(cx + 154, cy + 136);
+        path.lineTo(cx + 123, cy + 181);
+        path.lineTo(cx - 123, cy + 181);
+        path.close();
+        fill.setColor(Color.argb(245, 3, 13, 17)); c.drawPath(path, fill);
+        stroke.setColor(Color.rgb(82, 102, 111)); stroke.setStrokeWidth(1.2f); c.drawPath(path, stroke);
+        line(c, cx - 103, cy + 105, cx + 103, cy + 105, RED, 2f);
+        glowLabel(c, valueText(telemetry.speed, 0x0D, 0), cx, cy + 158, 50, WHITE, Paint.Align.CENTER, true, 2.5f);
+        label(c, "km/h", cx + 78, cy + 158, 18, WHITE, Paint.Align.LEFT, true, false);
+    }
+
+    private void drawSportMetric(Canvas c, RectF r, SensorKey key, boolean large) {
+        SensorReading reading = sensorReading(key);
+        panel(c, r, GREEN, false);
+        drawIcon(c, key.icon, r.left + (large ? 48 : 42), r.top + (large ? 43 : 39), GREEN, large ? .78f : .65f);
+        label(c, key.title, r.left + (large ? 110 : 92), r.top + 35, large ? 17 : 15, MUTED, Paint.Align.LEFT, false, false);
+        label(c, "›", r.right - 25, r.top + 35, 28, Color.rgb(205, 222, 231), Paint.Align.CENTER, false, false);
+        if (large) {
+            glowLabel(c, reading.display(), r.left + 112, r.top + 105, 55, WHITE, Paint.Align.LEFT, true, 2.2f);
+            label(c, reading.state == SensorFreshness.State.UNSUPPORTED ? "" : key.unit, r.left + 245, r.top + 99, 22, WHITE, Paint.Align.LEFT, true, false);
+            progress(c, r.left + 24, r.bottom - 38, r.right - 24, r.bottom - 30, reading, GREEN);
+            scaleLabels(c, r, key, r.bottom - 12);
         } else {
-            text(c, selectorTransport == ObdManager.Transport.BLUETOOTH ? "Bluetooth devices" : "BLE devices", r.left + 28, r.top + 202, 15, WHITE, Paint.Align.LEFT, true, false);
-            List<ObdManager.DeviceInfo> filtered = filteredDevices(selectorTransport);
-            int visible = 5;
-            int maxScroll = Math.max(0, filtered.size() - visible);
-            if (deviceScroll > maxScroll) deviceScroll = maxScroll;
-            float listTop = r.top + 218;
-            for (int row = 0; row < visible; row++) {
-                int index = deviceScroll + row;
-                if (index >= filtered.size()) break;
-                ObdManager.DeviceInfo d = filtered.get(index);
-                float yy = listTop + row * 51;
-                boolean selected = d.key().equals(selectedDeviceKey);
-                fillRound(c, r.left + 28, yy, r.right - 28, yy + 43, 6, selected ? Color.rgb(15, 68, 98) : PANEL2, 255);
-                strokeRound(c, r.left + 28, yy, r.right - 28, yy + 43, 6, selected ? CYAN : Color.argb(100, 80, 160, 200), 1, 255);
-                text(c, d.name + (d.paired ? "  • paired" : ""), r.left + 45, yy + 18, 13, WHITE, Paint.Align.LEFT, true, false);
-                String meta = d.address + (d.rssi != Integer.MIN_VALUE ? "   RSSI " + d.rssi : "");
-                text(c, meta, r.left + 45, yy + 35, 9.5f, DIM, Paint.Align.LEFT, false, false);
-            }
-            if (filtered.isEmpty()) text(c, "No devices yet. Tap SCAN.", r.left + 28, listTop + 30, 13, MUTED, Paint.Align.LEFT, false, false);
-            drawActionButton(c, r.left + 28, r.bottom - 70, r.left + 250, r.bottom - 24, "SCAN", CYAN);
-            drawActionButton(c, r.left + 264, r.bottom - 70, r.left + 360, r.bottom - 24, "▲", CYAN);
-            drawActionButton(c, r.left + 372, r.bottom - 70, r.left + 468, r.bottom - 24, "▼", CYAN);
-            drawActionButton(c, r.left + 482, r.bottom - 70, r.right - 28, r.bottom - 24, "CONNECT", GREEN);
+            glowLabel(c, reading.display(), r.left + 92, r.top + 71, 32, WHITE, Paint.Align.LEFT, true, 1.8f);
+            label(c, reading.state == SensorFreshness.State.UNSUPPORTED ? "" : key.unit, r.left + 174, r.top + 69, 17, WHITE, Paint.Align.LEFT, true, false);
+            progress(c, r.left + 24, r.bottom - 38, r.right - 24, r.bottom - 30, reading, GREEN);
+            scaleLabels(c, r, key, r.bottom - 12);
         }
-        text(c, "Status: " + stateFriendly() + " — " + truncate(obdDetail, 76), r.left + 28, r.bottom - 88, 11,
-                obdState == ObdManager.State.ERROR ? RED : MUTED, Paint.Align.LEFT, false, false);
     }
 
-    private List<ObdManager.DeviceInfo> filteredDevices(ObdManager.Transport transport) {
-        List<ObdManager.DeviceInfo> out = new ArrayList<>();
-        for (ObdManager.DeviceInfo d : devices) if (d.transport == transport) out.add(d);
+    // -----------------------------------------------------------------------------------------
+    // DIAGNOSTICS MODE
+    // -----------------------------------------------------------------------------------------
+
+    private void drawDiagnostics(Canvas c) {
+        float gap = 8, left = 28, right = 1254;
+        float w = (right - left - gap * 5) / 6f;
+        SensorKey[] top = {SensorKey.MODULE_VOLTAGE, SensorKey.COOLANT, SensorKey.INTAKE, SensorKey.THROTTLE, SensorKey.LOAD, SensorKey.FUEL};
+        for (int i = 0; i < 6; i++) {
+            RectF r = new RectF(left + i * (w + gap), 222, left + i * (w + gap) + w, 320);
+            drawDiagnosticMetric(c, r, top[i]);
+        }
+
+        RectF dtcR = new RectF(28, 330, 396, 520);
+        RectF readyR = new RectF(406, 330, 850, 520);
+        RectF liveR = new RectF(860, 330, 1254, 520);
+        drawDtcCard(c, dtcR);
+        drawReadinessCard(c, readyR);
+        drawLiveSensorCard(c, liveR);
+
+        drawFreezeFrameCard(c, new RectF(28, 530, 396, 626));
+        drawEmissionsCard(c, new RectF(406, 530, 850, 626));
+        drawEcuInfoCard(c, new RectF(860, 530, 1254, 626));
+    }
+
+    private void drawDiagnosticMetric(Canvas c, RectF r, SensorKey key) {
+        SensorReading reading = sensorReading(key);
+        panel(c, r, GREEN, false);
+        drawIcon(c, key.icon, r.left + 30, r.top + 32, GREEN, .58f);
+        label(c, key.title, r.left + 63, r.top + 26, 10.5f, MUTED, Paint.Align.LEFT, false, false);
+        glowLabel(c, reading.display(), r.left + 63, r.top + 61, 28, WHITE, Paint.Align.LEFT, true, 1.4f);
+        label(c, reading.state == SensorFreshness.State.UNSUPPORTED ? "" : key.unit, r.left + 128, r.top + 60, 14, WHITE, Paint.Align.LEFT, false, false);
+        progress(c, r.left + 18, r.bottom - 28, r.right - 18, r.bottom - 21, reading, GREEN);
+        scaleLabels(c, r, key, r.bottom - 7);
+    }
+
+    private void drawDtcCard(Canvas c, RectF r) {
+        panel(c, r, GREEN, false);
+        drawIcon(c, Icon.WARNING, r.left + 35, r.top + 34, WHITE, .7f);
+        title(c, "FAULT CODES (DTC)", r.left + 76, r.top + 31);
+        label(c, "›", r.right - 24, r.top + 31, 26, Color.rgb(206, 222, 230), Paint.Align.CENTER, false, false);
+        float cx = r.left + 62, cy = r.top + 100;
+        switch (dtc.status) {
+            case NO_CODES:
+                strokeCircle(c, cx, cy, 29, GREEN, 2.5f); drawCheck(c, cx, cy, GREEN, .8f);
+                label(c, "NO FAULT CODES", r.left + 111, r.top + 94, 16, GREEN, Paint.Align.LEFT, true, false);
+                label(c, "Mode 03 read completed successfully.", r.left + 111, r.top + 120, 11, MUTED, Paint.Align.LEFT, false, false);
+                break;
+            case HAS_CODES:
+                strokeCircle(c, cx, cy, 29, RED, 2.5f); drawIcon(c, Icon.WARNING, cx, cy, RED, .55f);
+                label(c, dtc.codes.size() + " STORED DTC", r.left + 111, r.top + 88, 16, RED, Paint.Align.LEFT, true, false);
+                for (int i = 0; i < Math.min(3, dtc.codes.size()); i++) label(c, dtc.codes.get(i), r.left + 111, r.top + 112 + i * 19, 13, WHITE, Paint.Align.LEFT, true, false);
+                break;
+            case ERROR:
+                strokeCircle(c, cx, cy, 29, RED, 2.5f); drawIcon(c, Icon.WARNING, cx, cy, RED, .55f);
+                label(c, "READ ERROR", r.left + 111, r.top + 94, 16, RED, Paint.Align.LEFT, true, false);
+                label(c, truncate(dtc.detail, 34), r.left + 111, r.top + 120, 11, MUTED, Paint.Align.LEFT, false, false);
+                break;
+            default:
+                strokeCircle(c, cx, cy, 29, DIM, 2f); drawIcon(c, Icon.INFO, cx, cy, MUTED, .55f);
+                label(c, "NOT READ", r.left + 111, r.top + 94, 16, MUTED, Paint.Align.LEFT, true, false);
+                label(c, "Connect ECU to read stored DTC.", r.left + 111, r.top + 120, 11, DIM, Paint.Align.LEFT, false, false);
+        }
+    }
+
+    private void drawReadinessCard(Canvas c, RectF r) {
+        panel(c, r, GREEN, false);
+        drawIcon(c, Icon.CHECK, r.left + 34, r.top + 33, GREEN, .66f);
+        title(c, "READINESS MONITORS", r.left + 74, r.top + 31);
+        String summary = readinessSummary();
+        label(c, summary, r.right - 22, r.top + 31, 13, readiness.available ? GREEN : MUTED, Paint.Align.RIGHT, true, false);
+        if (!readiness.available) {
+            label(c, "N/A — waiting for ECU", r.left + 34, r.top + 92, 16, MUTED, Paint.Align.LEFT, true, false);
+            return;
+        }
+        String[] wanted = {"Misfire", "Fuel System", "Components", "Catalyst", "Heated Catalyst", "Evaporative System", "Secondary Air", "O2 Sensor"};
+        float x1 = r.left + 34, x2 = r.left + 240, y = r.top + 68;
+        int col = 0, row = 0;
+        for (String n : wanted) {
+            ObdManager.MonitorState state = readiness.monitors.get(n);
+            float x = col == 0 ? x1 : x2;
+            drawMonitorState(c, x, y + row * 27, n, state);
+            col++;
+            if (col == 2) { col = 0; row++; }
+        }
+    }
+
+    private void drawMonitorState(Canvas c, float x, float y, String name, ObdManager.MonitorState state) {
+        int color = state == ObdManager.MonitorState.COMPLETE ? GREEN : state == ObdManager.MonitorState.INCOMPLETE ? ORANGE : DIM;
+        strokeCircle(c, x, y - 4, 7, color, 1.5f);
+        if (state == ObdManager.MonitorState.COMPLETE) drawCheck(c, x, y - 4, color, .33f);
+        else if (state == ObdManager.MonitorState.INCOMPLETE) label(c, "!", x, y, 10, color, Paint.Align.CENTER, true, false);
+        else label(c, "–", x, y, 11, color, Paint.Align.CENTER, true, false);
+        label(c, name, x + 18, y, 10.5f, state == ObdManager.MonitorState.UNSUPPORTED ? DIM : MUTED, Paint.Align.LEFT, false, false);
+    }
+
+    private String readinessSummary() {
+        if (!readiness.available) return "N/A";
+        int supported = 0, complete = 0;
+        for (ObdManager.MonitorState s : readiness.monitors.values()) {
+            if (s != ObdManager.MonitorState.UNSUPPORTED) { supported++; if (s == ObdManager.MonitorState.COMPLETE) complete++; }
+        }
+        return supported == 0 ? "N/A" : complete + " / " + supported + " COMPLETE";
+    }
+
+    private void drawLiveSensorCard(Canvas c, RectF r) {
+        panel(c, r, GREEN, false);
+        drawIcon(c, Icon.PULSE, r.left + 31, r.top + 31, GREEN, .63f);
+        title(c, "LIVE SENSOR DATA", r.left + 72, r.top + 31);
+        label(c, "›", r.right - 22, r.top + 31, 26, Color.rgb(206, 222, 230), Paint.Align.CENTER, false, false);
+
+        List<SensorKey> keys = liveSensorKeys();
+        float y0 = r.top + 58 - diagLiveScroll;
+        c.save();
+        c.clipRect(r.left + 12, r.top + 44, r.right - 12, r.bottom - 10);
+        for (int i = 0; i < keys.size(); i++) {
+            float y = y0 + i * 20;
+            if (y < r.top + 46 || y > r.bottom - 4) continue;
+            SensorReading sr = sensorReading(keys.get(i));
+            label(c, keys.get(i).title, r.left + 22, y, 10.5f, MUTED, Paint.Align.LEFT, false, false);
+            label(c, sr.display(), r.right - 58, y, 10.5f, WHITE, Paint.Align.RIGHT, sr.state == SensorFreshness.State.VALID, false);
+            label(c, sr.state == SensorFreshness.State.UNSUPPORTED ? "" : keys.get(i).unit, r.right - 20, y, 10, MUTED, Paint.Align.RIGHT, false, false);
+            line(c, r.left + 22, y + 6, r.right - 20, y + 6, Color.argb(48, 105, 131, 143), 1f);
+        }
+        c.restore();
+    }
+
+    private List<SensorKey> liveSensorKeys() {
+        List<SensorKey> out = new ArrayList<>();
+        SensorKey[] all = SensorKey.values();
+        for (SensorKey key : all) {
+            SensorReading sr = sensorReading(key);
+            if (sr.state != SensorFreshness.State.UNSUPPORTED || !telemetry.capabilitiesKnown || key == SensorKey.ADAPTER_VOLTAGE) out.add(key);
+        }
         return out;
     }
 
-    private void drawActionButton(Canvas c, float l, float t, float r, float b, String label, int accent) {
-        fillRound(c, l, t, r, b, 7, Color.rgb(8, 52, 79), 255);
-        strokeRound(c, l, t, r, b, 7, accent, 1.2f, 240);
-        text(c, label, (l+r)*.5f, (t+b)*.5f + 5, 13, WHITE, Paint.Align.CENTER, true, false);
+    private void drawFreezeFrameCard(Canvas c, RectF r) {
+        panel(c, r, GREEN, false);
+        drawIcon(c, Icon.SNOW, r.left + 30, r.top + 29, GREEN, .62f);
+        title(c, "FREEZE FRAME STATUS", r.left + 70, r.top + 29);
+        label(c, "NO FREEZE FRAME DATA", r.left + 70, r.top + 62, 13, MUTED, Paint.Align.LEFT, true, false);
+        label(c, "Mode 02 freeze frame is not read until available.", r.left + 70, r.top + 86, 10.5f, DIM, Paint.Align.LEFT, false, false);
     }
 
-    // ---------------- Touch ----------------
+    private void drawEmissionsCard(Canvas c, RectF r) {
+        panel(c, r, GREEN, false);
+        drawIcon(c, Icon.LEAF, r.left + 30, r.top + 29, GREEN, .62f);
+        title(c, "EMISSIONS / SYSTEM STATUS", r.left + 70, r.top + 29);
+        String mil = readiness.available ? (readiness.milOn ? "ON" : "OFF") : "N/A";
+        String count = readiness.available ? Integer.toString(readiness.dtcCount) : "N/A";
+        String monitor = readinessSummary();
+        String ready = emissionsReady();
+        smallInfo(c, "MIL Status", mil, r.left + 70, r.top + 56, r.right - 22, readiness.milOn ? RED : GREEN);
+        smallInfo(c, "DTC Count", count, r.left + 70, r.top + 76, r.right - 22, WHITE);
+        smallInfo(c, "Monitors", monitor, r.left + 70, r.top + 96, r.right - 22, readiness.available ? GREEN : MUTED);
+        smallInfo(c, "Readiness", ready, r.left + 70, r.top + 116, r.right - 22, "READY".equals(ready) ? GREEN : MUTED);
+    }
 
-    @Override public boolean onTouchEvent(MotionEvent event) {
-        if (event.getAction() != MotionEvent.ACTION_UP) return true;
-        float x = (event.getX() - viewOffsetX) / viewScale;
-        float y = (event.getY() - viewOffsetY) / viewScale;
+    private String emissionsReady() {
+        if (!readiness.available) return "N/A";
+        boolean any = false;
+        for (ObdManager.MonitorState s : readiness.monitors.values()) {
+            if (s == ObdManager.MonitorState.UNSUPPORTED) continue;
+            any = true;
+            if (s != ObdManager.MonitorState.COMPLETE) return "NOT READY";
+        }
+        return any ? "READY" : "N/A";
+    }
+
+    private void drawEcuInfoCard(Canvas c, RectF r) {
+        panel(c, r, GREEN, false);
+        drawIcon(c, Icon.CHIP, r.left + 30, r.top + 29, GREEN, .62f);
+        title(c, "ECU INFORMATION", r.left + 70, r.top + 29);
+        smallInfo(c, "ECU Identity", "N/A", r.left + 70, r.top + 54, r.right - 22, MUTED);
+        smallInfo(c, "Calibration ID", "N/A", r.left + 70, r.top + 73, r.right - 22, MUTED);
+        smallInfo(c, "Protocol", nonEmpty(telemetry.protocol, "N/A"), r.left + 70, r.top + 92, r.right - 22, WHITE);
+        smallInfo(c, "Module Voltage", sensorReading(SensorKey.MODULE_VOLTAGE).display() + " " + SensorKey.MODULE_VOLTAGE.unit, r.left + 70, r.top + 111, r.right - 22, WHITE);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // SPORT SENSOR PICKER
+    // -----------------------------------------------------------------------------------------
+
+    private void drawSensorPicker(Canvas c) {
+        fill.setColor(Color.argb(190, 0, 0, 0)); c.drawRect(0, 0, DW, DH, fill);
+        RectF r = new RectF(190, 118, 1090, 594);
+        fill.setColor(Color.rgb(4, 18, 24)); c.drawRoundRect(r, 14, 14, fill);
+        stroke.setColor(GREEN); stroke.setStrokeWidth(1.5f); c.drawRoundRect(r, 14, 14, stroke);
+        label(c, "SELECT SENSOR", r.left + 34, r.top + 45, 24, WHITE, Paint.Align.LEFT, true, true);
+        label(c, "Sport widget " + (sensorPickerSlot + 1), r.left + 34, r.top + 70, 12, MUTED, Paint.Align.LEFT, false, false);
+        label(c, "×", r.right - 34, r.top + 47, 34, WHITE, Paint.Align.CENTER, false, false);
+
+        SensorKey[] keys = SensorKey.values();
+        float l = r.left + 30, top = r.top + 96, gapX = 12, gapY = 12;
+        float w = (r.width() - 60 - gapX * 2) / 3f;
+        float h = 68;
+        for (int i = 0; i < keys.length; i++) {
+            int col = i % 3, row = i / 3;
+            float x = l + col * (w + gapX), y = top + row * (h + gapY);
+            RectF rr = new RectF(x, y, x + w, y + h);
+            boolean selected = sportSlots[sensorPickerSlot] == keys[i];
+            fill.setColor(selected ? Color.argb(85, 0, 145, 84) : Color.rgb(7, 28, 35)); c.drawRoundRect(rr, 7, 7, fill);
+            stroke.setColor(selected ? GREEN : Color.rgb(64, 91, 103)); stroke.setStrokeWidth(selected ? 1.6f : 1f); c.drawRoundRect(rr, 7, 7, stroke);
+            drawIcon(c, keys[i].icon, rr.left + 28, rr.centerY(), selected ? GREEN : Color.rgb(190, 210, 220), .48f);
+            label(c, keys[i].title, rr.left + 52, rr.centerY() - 3, 11.5f, selected ? WHITE : MUTED, Paint.Align.LEFT, true, false);
+            label(c, sensorReading(keys[i]).state == SensorFreshness.State.UNSUPPORTED ? "N/A" : keys[i].unit, rr.left + 52, rr.centerY() + 17, 10, selected ? GREEN : DIM, Paint.Align.LEFT, false, false);
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // BOTTOM NAVIGATION
+    // -----------------------------------------------------------------------------------------
+
+    private void drawBottomNavigation(Canvas c) {
+        final float top = NAV_TOP + 2f, bottom = NAV_BOTTOM - 2f;
+        final float third = DW / 3f;
+        Mode[] modes = {Mode.CONNECT, Mode.SPORT, Mode.DIAGNOSTICS};
+        String[] names = {"CONNECT", "SPORT", "DIAGNOSTICS"};
+        String[] subs = {"OBD SETUP & LINK", "HIGHER STANDARDS", "KNOW YOUR CAR"};
+        Icon[] icons = {Icon.LINK, Icon.FLAG, Icon.GEAR};
+        for (int i = 0; i < 3; i++) {
+            float l = i * third;
+            float r = (i + 1) * third;
+            boolean active = mode == modes[i];
+            int accent = modes[i] == Mode.SPORT ? RED : modes[i] == Mode.DIAGNOSTICS ? CYAN : GREEN;
+            float slant = 18f;
+            path.reset();
+            if (i == 0) {
+                path.moveTo(l + 2, top); path.lineTo(r - 3, top); path.lineTo(r - slant, bottom); path.lineTo(l + 2, bottom);
+            } else if (i == 1) {
+                path.moveTo(l + slant, top); path.lineTo(r - slant, top); path.lineTo(r - 2, bottom); path.lineTo(l + 2, bottom);
+            } else {
+                path.moveTo(l + slant, top); path.lineTo(r - 2, top); path.lineTo(r - 2, bottom); path.lineTo(l + 2, bottom);
+            }
+            path.close();
+            fill.setColor(active ? Color.argb(78, Color.red(accent), Color.green(accent), Color.blue(accent)) : Color.argb(248, 3, 14, 18));
+            c.drawPath(path, fill);
+            stroke.setColor(active ? accent : Color.rgb(54, 75, 84));
+            stroke.setStrokeWidth(active ? 1.7f : 1f); c.drawPath(path, stroke);
+
+            float iconX = l + 132;
+            drawIcon(c, icons[i], iconX, 671, active ? accent : Color.rgb(202, 216, 229), .82f);
+            label(c, names[i], l + 184, 666, 19, active ? WHITE : Color.rgb(219, 229, 236), Paint.Align.LEFT, true, false);
+            label(c, subs[i], l + 184, 690, 10.5f, active ? accent : MUTED, Paint.Align.LEFT, false, true);
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // SENSOR MODEL HELPERS
+    // -----------------------------------------------------------------------------------------
+
+    private SensorReading sensorReading(SensorKey key) {
+        float v = rawSensor(key);
+        long at = sensorTimestamp(key);
+        boolean independent = key == SensorKey.ADAPTER_VOLTAGE;
+        boolean supported = independent || key.pid < 0 || telemetry.supports(key.pid);
+        SensorFreshness.State state = SensorFreshness.classify(
+                obdState == ObdManager.State.ECU_CONNECTED,
+                telemetry.capabilitiesKnown,
+                supported,
+                independent,
+                v,
+                at,
+                System.currentTimeMillis(),
+                sensorTtlMs(key));
+        return new SensorReading(key, state == SensorFreshness.State.VALID ? v : Float.NaN, state);
+    }
+
+    private long sensorTimestamp(SensorKey key) {
+        switch (key) {
+            case COOLANT: return telemetry.coolantAt;
+            case INTAKE: return telemetry.intakeAt;
+            case MODULE_VOLTAGE: return telemetry.voltageAt;
+            case ADAPTER_VOLTAGE: return telemetry.adapterVoltageAt;
+            case THROTTLE: return telemetry.throttleAt;
+            case LOAD: return telemetry.loadAt;
+            case FUEL: return telemetry.fuelAt;
+            case MAF: return telemetry.mafAt;
+            case MAP: return telemetry.mapAt;
+            case STFT: return telemetry.shortFuelTrimAt;
+            case LTFT: return telemetry.longFuelTrimAt;
+            case TIMING: return telemetry.timingAt;
+            case FUEL_RATE: return telemetry.fuelRateAt;
+            default: return 0L;
+        }
+    }
+
+    private long sensorTtlMs(SensorKey key) {
+        switch (key) {
+            case THROTTLE:
+            case LOAD: return 1800L;
+            case MAF:
+            case MAP:
+            case TIMING: return 3000L;
+            case STFT: return 4000L;
+            case LTFT: return 6000L;
+            case FUEL: return 15000L;
+            default: return 7000L;
+        }
+    }
+
+    private float rawSensor(SensorKey key) {
+        switch (key) {
+            case COOLANT: return telemetry.coolant;
+            case INTAKE: return telemetry.intake;
+            case MODULE_VOLTAGE: return telemetry.voltage;
+            case ADAPTER_VOLTAGE: return telemetry.adapterVoltage;
+            case THROTTLE: return telemetry.throttle;
+            case LOAD: return telemetry.load;
+            case FUEL: return telemetry.fuel;
+            case MAF: return telemetry.maf;
+            case MAP: return telemetry.map;
+            case STFT: return telemetry.shortFuelTrim;
+            case LTFT: return telemetry.longFuelTrim;
+            case TIMING: return telemetry.timing;
+            case FUEL_RATE: return telemetry.fuelRate;
+            default: return Float.NaN;
+        }
+    }
+
+    private float freshRaw(float f) { return Float.isNaN(f) ? Float.NaN : f; }
+
+    private String valueText(float value, int pid, int decimals) {
+        if (obdState != ObdManager.State.ECU_CONNECTED) return "--";
+        if (telemetry.capabilitiesKnown && !telemetry.supports(pid)) return "N/A";
+        if (Float.isNaN(value)) return "--";
+        return decimals == 0 ? String.format(Locale.US, "%.0f", value) : String.format(Locale.US, "%.1f", value);
+    }
+
+    private boolean hasAnyFreshTelemetry() {
+        return !Float.isNaN(telemetry.rpm) || !Float.isNaN(telemetry.speed) || !Float.isNaN(telemetry.coolant) || !Float.isNaN(telemetry.throttle);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // TOUCH
+    // -----------------------------------------------------------------------------------------
+
+    @Override public boolean onTouchEvent(MotionEvent e) {
+        float x = (e.getX() - viewOffsetX) / viewScale;
+        float y = (e.getY() - viewOffsetY) / viewScale;
+        if (e.getAction() == MotionEvent.ACTION_DOWN) {
+            touchDownY = lastTouchY = y;
+            diagDragging = false;
+            return true;
+        }
+        if (e.getAction() == MotionEvent.ACTION_MOVE) {
+            if (mode == Mode.DIAGNOSTICS && x >= 860 && x <= 1254 && y >= 330 && y <= 520) {
+                float dy = y - lastTouchY;
+                if (Math.abs(y - touchDownY) > 4) diagDragging = true;
+                diagLiveScroll = clamp(diagLiveScroll - dy, 0, Math.max(0, liveSensorKeys().size() * 20f - 130f));
+                lastTouchY = y;
+                invalidate();
+            }
+            return true;
+        }
+        if (e.getAction() != MotionEvent.ACTION_UP) return true;
         if (x < 0 || y < 0 || x > DW || y > DH) return true;
 
-        if (connectionPanelOpen) {
-            handleConnectionPanelTouch(x, y);
-            invalidate();
+        if (sensorPickerSlot >= 0) {
+            handleSensorPickerTouch(x, y);
             return true;
         }
 
-        // Hit areas exactly match the three rectangles drawn in drawModeTabs().
-        float margin = 16f, gap = 8f, w = (1280f - margin * 2f - gap * 2f) / 3f;
-        if (y >= 624f && y <= 710f) {
-            for (int i = 0; i < 3; i++) {
-                float l = margin + i * (w + gap);
-                if (x >= l && x <= l + w) {
-                    mode = i == 0 ? Mode.STREET : i == 1 ? Mode.SPORT : Mode.DIAGNOSTICS;
-                    invalidate();
-                    return true;
-                }
-            }
+        if (y >= NAV_TOP && y <= NAV_BOTTOM) {
+            int idx = Math.max(0, Math.min(2, (int) (x / (DW / 3f))));
+            mode = idx == 0 ? Mode.CONNECT : idx == 1 ? Mode.SPORT : Mode.DIAGNOSTICS;
+            invalidate(); return true;
         }
 
-        if (mode == Mode.DIAGNOSTICS && ((x >= 18 && x <= 390 && y >= 258 && y <= 365) || (x >= 745 && x <= 1018 && y >= 258 && y <= 365))) {
-            if (!hasBluetoothPermission()) activity.requestObdBluetoothPermissions();
-            connectionPanelOpen = true;
-            selectorTransport = ObdManager.Transport.BLUETOOTH;
-            selectedDeviceKey = "";
-            deviceScroll = 0;
-            obd.refreshDevices();
-            invalidate();
-            return true;
-        }
-        if (x >= 930 && y <= 70) {
-            if (!hasBluetoothPermission()) activity.requestObdBluetoothPermissions();
-            connectionPanelOpen = true;
-            obd.refreshDevices();
-            invalidate();
-        }
+        if (mode == Mode.CONNECT) handleConnectTouch(x, y);
+        else if (mode == Mode.SPORT) handleSportTouch(x, y);
         return true;
     }
 
-    private void handleConnectionPanelTouch(float x, float y) {
-        RectF r = new RectF(250, 92, 1030, 620);
-        if (x < r.left || x > r.right || y < r.top || y > r.bottom || (x > r.right - 70 && y < r.top + 62)) {
-            connectionPanelOpen = false;
-            return;
+    private void handleSportTouch(float x, float y) {
+        RectF[] slots = {sportLeftBig, sportRightBig, sportBottomLeft, sportBottomMid, sportBottomRight};
+        for (int i = 0; i < slots.length; i++) {
+            if (slots[i].contains(x, y)) { sensorPickerSlot = i; invalidate(); return; }
         }
-        if (y >= r.top + 86 && y <= r.top + 126) {
-            int idx = (int)((x - (r.left + 28)) / 170f);
-            if (idx >= 0 && idx < 4) {
-                selectorTransport = new ObdManager.Transport[]{ObdManager.Transport.AUTO, ObdManager.Transport.BLUETOOTH, ObdManager.Transport.BLE, ObdManager.Transport.WIFI}[idx];
-                selectedDeviceKey = "";
-                deviceScroll = 0;
-                if ((selectorTransport == ObdManager.Transport.BLUETOOTH || selectorTransport == ObdManager.Transport.BLE) && !hasBluetoothPermission()) {
-                    activity.requestObdBluetoothPermissions();
-                }
-                if (selectorTransport == ObdManager.Transport.BLUETOOTH) obd.refreshDevices();
-            }
-            return;
-        }
-        if (y >= r.top + 136 && y <= r.top + 174) {
-            if (x >= r.left + 105 && x <= r.left + 195) {
-                autoReconnect = !autoReconnect;
-                prefs.edit().putBoolean("auto_reconnect", autoReconnect).apply();
-                return;
-            }
-            if (x >= r.right - 188) {
-                obd.disconnect();
-                return;
-            }
-        }
+    }
 
-        if (selectorTransport == ObdManager.Transport.BLUETOOTH || selectorTransport == ObdManager.Transport.BLE) {
-            List<ObdManager.DeviceInfo> filtered = filteredDevices(selectorTransport);
-            float listTop = r.top + 218;
-            for (int row = 0; row < 5; row++) {
-                int index = deviceScroll + row;
-                if (index >= filtered.size()) break;
-                float yy = listTop + row * 51;
-                if (y >= yy && y <= yy + 43) {
-                    selectedDeviceKey = filtered.get(index).key();
-                    return;
-                }
-            }
-            if (y >= r.bottom - 70 && y <= r.bottom - 24) {
-                if (x <= r.left + 250) {
-                    if (selectorTransport == ObdManager.Transport.BLE) obd.scanBleDevices(); else obd.scanClassicDevices();
-                } else if (x <= r.left + 360) {
-                    deviceScroll = Math.max(0, deviceScroll - 1);
-                } else if (x <= r.left + 468) {
-                    deviceScroll = Math.min(Math.max(0, filtered.size() - 5), deviceScroll + 1);
-                } else {
-                    for (ObdManager.DeviceInfo d : filtered) {
-                        if (d.key().equals(selectedDeviceKey)) { obd.connect(d); return; }
-                    }
-                }
-            }
-        } else if (selectorTransport == ObdManager.Transport.AUTO && y >= r.bottom - 70) {
-            obd.connectAuto();
-        } else if (selectorTransport == ObdManager.Transport.WIFI && y >= r.bottom - 70) {
-            if (x <= r.left + 330) {
-                activity.promptWifiEndpoint(wifiHost, wifiPort, (host, port) -> {
-                    wifiHost = host; wifiPort = port;
-                    prefs.edit().putString("wifi_host", host).putInt("wifi_port", port).apply();
-                    invalidate();
-                });
-            } else {
-                obd.connectWifi(wifiHost, wifiPort);
+    private void handleSensorPickerTouch(float x, float y) {
+        RectF r = new RectF(190, 118, 1090, 594);
+        if (!r.contains(x, y) || (x > r.right - 75 && y < r.top + 80)) { sensorPickerSlot = -1; invalidate(); return; }
+        SensorKey[] keys = SensorKey.values();
+        float l = r.left + 30, top = r.top + 96, gapX = 12, gapY = 12;
+        float w = (r.width() - 60 - gapX * 2) / 3f, h = 68;
+        for (int i = 0; i < keys.length; i++) {
+            int col = i % 3, row = i / 3;
+            RectF rr = new RectF(l + col * (w + gapX), top + row * (h + gapY), l + col * (w + gapX) + w, top + row * (h + gapY) + h);
+            if (rr.contains(x, y)) {
+                sportSlots[sensorPickerSlot] = keys[i];
+                prefs.edit().putString("sport_slot_" + sensorPickerSlot, keys[i].name()).apply();
+                sensorPickerSlot = -1;
+                invalidate(); return;
             }
         }
     }
 
-    // ---------------- Listener ----------------
+    private void handleConnectTouch(float x, float y) {
+        // Top transport selector.
+        RectF r = connectCards[2];
+        float gap = 10, left = r.left + 14, top = r.top + 58, h = 96, w = (r.width() - 28 - gap * 2) / 3f;
+        RectF ble = new RectF(left, top, left + w, top + h);
+        RectF bt = new RectF(left + w + gap, top, left + w * 2 + gap, top + h);
+        RectF wifi = new RectF(left + (w + gap) * 2, top, r.right - 14, top + h);
+        if (ble.contains(x, y)) { setSelectedTransport(ObdManager.Transport.BLE); return; }
+        if (bt.contains(x, y)) { setSelectedTransport(ObdManager.Transport.BLUETOOTH); return; }
+        if (wifi.contains(x, y)) { setSelectedTransport(ObdManager.Transport.WIFI); return; }
+
+        // Device actions.
+        RectF a = connectCards[3]; float l = a.left + 14, t = a.top + 54, g = 8, aw = (a.width() - 28 - g) / 2f;
+        if (new RectF(l,t,l+aw,t+43).contains(x,y)) { scanSelectedTransport(); return; }
+        if (new RectF(l+aw+g,t,a.right-14,t+43).contains(x,y)) { selectNextDevice(); return; }
+        if (new RectF(l,t+50,l+aw,t+93).contains(x,y)) { connectSelected(); return; }
+        if (new RectF(l+aw+g,t+50,a.right-14,t+93).contains(x,y)) { obd.disconnect(); return; }
+        if (new RectF(l,t+100,l+aw,t+143).contains(x,y)) { connectSelected(); return; }
+        if (new RectF(l+aw+g,t+100,a.right-14,t+143).contains(x,y)) { obd.setDebugLoggingEnabled(true); activity.showObdLog(obd.getDebugLogText(), this::exportLog); return; }
+
+        // Settings card rows.
+        RectF s = connectCards[4]; float sy = s.top + 58;
+        if (y >= sy - 14 && y <= sy + 12) { autoReconnect = !autoReconnect; prefs.edit().putBoolean("auto_reconnect", autoReconnect).apply(); invalidate(); return; }
+        sy += 26;
+        if (y >= sy - 14 && y <= sy + 12) { activity.promptWifiEndpoint(wifiHost, wifiPort, (host, port) -> { wifiHost = host; wifiPort = port; prefs.edit().putString("wifi_host", host).putInt("wifi_port", port).apply(); invalidate(); }); return; }
+        sy += 26;
+        if (y >= sy - 14 && y <= sy + 12) { activity.promptWifiEndpoint(wifiHost, wifiPort, (host, port) -> { wifiHost = host; wifiPort = port; prefs.edit().putString("wifi_host", host).putInt("wifi_port", port).apply(); invalidate(); }); return; }
+        sy += 26;
+        if (y >= sy - 14 && y <= sy + 12) { activity.promptConnectionTimeout(connectionTimeoutMs, ms -> { connectionTimeoutMs = ms; prefs.edit().putInt("connection_timeout_ms", ms).apply(); obd.setConnectionTimeoutMs(ms); invalidate(); }); return; }
+        sy += 26;
+        if (y >= sy - 14 && y <= sy + 12) { autoDetectProtocol = !autoDetectProtocol; prefs.edit().putBoolean("auto_detect_protocol", autoDetectProtocol).apply(); invalidate(); return; }
+        sy += 26;
+        if (y >= sy - 14 && y <= sy + 12) { lowPowerMode = !lowPowerMode; prefs.edit().putBoolean("low_power_mode", lowPowerMode).apply(); invalidate(); return; }
+
+        // Device list rows.
+        RectF d = connectCards[6]; List<ObdManager.DeviceInfo> list = visibleDevicePool();
+        int start = Math.min(deviceScroll, Math.max(0, list.size() - 4));
+        float dy = d.top + 56;
+        for (int row = 0; row < 4 && start + row < list.size(); row++) {
+            RectF rr = new RectF(d.left + 14, dy + row * 27, d.right - 14, dy + row * 27 + 23);
+            if (rr.contains(x, y)) { ObdManager.DeviceInfo info = list.get(start + row); selectedDeviceKey = info.key(); selectedTransport = info.transport; prefs.edit().putString("ui_selected_transport", selectedTransport.name()).apply(); invalidate(); return; }
+        }
+
+        // Transport options rows.
+        RectF tr = connectCards[7];
+        if (tr.contains(x, y)) {
+            float rel = y - (tr.top + 47);
+            int row = (int) (rel / 27f);
+            if (row >= 0 && row < 4) {
+                ObdManager.Transport[] options = {ObdManager.Transport.AUTO, ObdManager.Transport.BLE, ObdManager.Transport.BLUETOOTH, ObdManager.Transport.WIFI};
+                setSelectedTransport(options[row]);
+            }
+        }
+    }
+
+    private void setSelectedTransport(ObdManager.Transport t) {
+        selectedTransport = t;
+        prefs.edit().putString("ui_selected_transport", t.name()).apply();
+        selectedDeviceKey = "";
+        if ((t == ObdManager.Transport.BLE || t == ObdManager.Transport.BLUETOOTH) && !hasBluetoothPermission()) activity.requestObdBluetoothPermissions();
+        if (t == ObdManager.Transport.BLUETOOTH) obd.refreshDevices();
+        invalidate();
+    }
+
+    private void scanSelectedTransport() {
+        if (selectedTransport == ObdManager.Transport.BLE) {
+            if (!hasBluetoothPermission()) activity.requestObdBluetoothPermissions(); else obd.scanBleDevices();
+        } else if (selectedTransport == ObdManager.Transport.BLUETOOTH) {
+            if (!hasBluetoothPermission()) activity.requestObdBluetoothPermissions(); else obd.scanClassicDevices();
+        } else if (selectedTransport == ObdManager.Transport.WIFI) {
+            Toast.makeText(activity, "Wi-Fi uses the configured host/port; no LAN discovery is performed.", Toast.LENGTH_SHORT).show();
+        } else {
+            obd.connectAuto();
+        }
+    }
+
+    private void selectNextDevice() {
+        List<ObdManager.DeviceInfo> filtered = filteredDevices(selectedTransport);
+        if (filtered.isEmpty()) { Toast.makeText(activity, "Scan for an adapter first", Toast.LENGTH_SHORT).show(); return; }
+        int idx = -1;
+        for (int i = 0; i < filtered.size(); i++) if (filtered.get(i).key().equals(selectedDeviceKey)) idx = i;
+        idx = (idx + 1) % filtered.size();
+        selectedDeviceKey = filtered.get(idx).key();
+        deviceScroll = Math.max(0, idx - 2);
+        invalidate();
+    }
+
+    private void connectSelected() {
+        if (selectedTransport == ObdManager.Transport.AUTO) { obd.connectAuto(); return; }
+        if (selectedTransport == ObdManager.Transport.WIFI) { obd.connectWifi(wifiHost, wifiPort); return; }
+        if (!hasBluetoothPermission()) { activity.requestObdBluetoothPermissions(); return; }
+        for (ObdManager.DeviceInfo d : devices) {
+            if (d.key().equals(selectedDeviceKey)) { connectedAddress = d.address; obd.connect(d); return; }
+        }
+        List<ObdManager.DeviceInfo> filtered = filteredDevices(selectedTransport);
+        if (filtered.size() == 1) { selectedDeviceKey = filtered.get(0).key(); connectedAddress = filtered.get(0).address; obd.connect(filtered.get(0)); return; }
+        Toast.makeText(activity, "Select an adapter from Recent Devices", Toast.LENGTH_SHORT).show();
+    }
+
+    private void exportLog() {
+        try {
+            File f = obd.exportDebugLog();
+            Toast.makeText(activity, "OBD log exported: " + f.getAbsolutePath(), Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(activity, "Could not export OBD log", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private List<ObdManager.DeviceInfo> filteredDevices(ObdManager.Transport t) {
+        List<ObdManager.DeviceInfo> out = new ArrayList<>();
+        if (t == ObdManager.Transport.AUTO) return visibleDevicePool();
+        for (ObdManager.DeviceInfo d : devices) if (d.transport == t) out.add(d);
+        return out;
+    }
+
+    private List<ObdManager.DeviceInfo> visibleDevicePool() {
+        List<ObdManager.DeviceInfo> out = new ArrayList<>();
+        Map<String, ObdManager.DeviceInfo> dedupe = new LinkedHashMap<>();
+        for (ObdManager.DeviceInfo d : devices) dedupe.put(d.key(), d);
+        out.addAll(dedupe.values());
+        return out;
+    }
+
+    private String selectedDeviceName() {
+        for (ObdManager.DeviceInfo d : devices) if (d.key().equals(selectedDeviceKey)) return d.name;
+        return adapterName;
+    }
+
+    private String currentDeviceAddress() {
+        for (ObdManager.DeviceInfo d : devices) if (d.key().equals(selectedDeviceKey)) return d.address;
+        return connectedAddress;
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // OBD LISTENER
+    // -----------------------------------------------------------------------------------------
 
     @Override public void onState(ObdManager.State state, String detail, ObdManager.Transport transport, String adapterName) {
-        this.obdState = state;
-        this.obdDetail = detail == null ? "" : detail;
-        this.obdTransport = transport;
+        ObdManager.State previous = obdState;
+        obdState = state;
+        obdDetail = detail == null ? "" : detail;
+        activeTransport = transport == null ? ObdManager.Transport.AUTO : transport;
         this.adapterName = adapterName == null ? "" : adapterName;
-        if (state == ObdManager.State.ECU_CONNECTED) {
-            prefs.edit().putString("last_transport", transport.name()).apply();
+        if (state == ObdManager.State.ECU_CONNECTED && previous != ObdManager.State.ECU_CONNECTED) {
+            connectedAtMs = System.currentTimeMillis(); lastConnectedAtMs = connectedAtMs;
+            prefs.edit().putLong("last_connected_at", lastConnectedAtMs).apply();
+        } else if (state != ObdManager.State.ECU_CONNECTED && previous == ObdManager.State.ECU_CONNECTED) {
+            connectedAtMs = 0;
         }
         invalidate();
     }
 
     @Override public void onDevices(List<ObdManager.DeviceInfo> devices) {
-        // Preserve both previously discovered BLE devices and paired BT devices.
-        this.devices = new ArrayList<>(devices);
+        this.devices = devices == null ? new ArrayList<>() : new ArrayList<>(devices);
+        if (selectedDeviceKey.isEmpty()) {
+            String verified = prefs.getString("verified_address", "");
+            String vt = prefs.getString("verified_transport", "");
+            for (ObdManager.DeviceInfo d : this.devices) {
+                if (!verified.isEmpty() && verified.equals(d.address) && vt.equals(d.transport.name())) { selectedDeviceKey = d.key(); connectedAddress = d.address; break; }
+            }
+        }
         invalidate();
     }
 
@@ -767,128 +1257,163 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     @Override public void onDtc(ObdManager.DtcResult result) {
-        this.dtcResult = result == null ? new ObdManager.DtcResult() : result;
+        this.dtc = result == null ? new ObdManager.DtcResult() : result;
         invalidate();
     }
 
-    // ---------------- Drawing primitives ----------------
+    // -----------------------------------------------------------------------------------------
+    // DRAWING PRIMITIVES
+    // -----------------------------------------------------------------------------------------
 
-    private void text(Canvas c, String s, float x, float y, float size, int color, Paint.Align align, boolean bold, boolean wideSpacing) {
-        p.setShader(null); p.clearShadowLayer(); p.setStyle(Paint.Style.FILL); p.setColor(color); p.setTextAlign(align); p.setTextSize(size);
-        p.setTypeface(Typeface.create(wideSpacing ? "sans-serif" : "sans-serif-condensed", bold ? Typeface.BOLD : Typeface.NORMAL));
-        c.drawText(s == null ? "" : s, x, y, p);
-    }
-
-    private void glowText(Canvas c, String s, float x, float y, float size, int color, Paint.Align align, boolean bold, float glow) {
-        p.setShader(null); p.setStyle(Paint.Style.FILL); p.setColor(color); p.setTextAlign(align); p.setTextSize(size);
-        p.setTypeface(Typeface.create("sans-serif-condensed", bold ? Typeface.BOLD_ITALIC : Typeface.NORMAL));
-        p.setShadowLayer(glow, 0, 0, color); c.drawText(s == null ? "" : s, x, y, p); p.clearShadowLayer();
+    private void panel(Canvas c, RectF r, int accent, boolean active) {
+        fill.setColor(Color.argb(active ? 248 : 242, 2, 15, 19)); c.drawRoundRect(r, 6, 6, fill);
+        stroke.setColor(active ? accent : BORDER); stroke.setStrokeWidth(active ? 1.6f : 1f); c.drawRoundRect(r, 6, 6, stroke);
     }
 
-    private float measure(String s, float size, boolean bold) {
-        p.setTextSize(size); p.setTypeface(Typeface.create("sans-serif-condensed", bold ? Typeface.BOLD_ITALIC : Typeface.NORMAL));
-        return p.measureText(s == null ? "" : s);
+    private void title(Canvas c, String s, float x, float y) { label(c, s, x, y, 15.5f, WHITE, Paint.Align.LEFT, true, false); }
+
+    private void infoRow(Canvas c, String name, String value, float x, float y, float offset) { infoRow(c, name, value, x, y, offset, WHITE); }
+    private void infoRow(Canvas c, String name, String value, float x, float y, float offset, int valueColor) {
+        label(c, name, x, y, 12.5f, MUTED, Paint.Align.LEFT, false, false);
+        label(c, truncate(value, 26), x + offset, y, 12.5f, valueColor, Paint.Align.LEFT, true, false);
     }
 
-    private void fillRect(Canvas c, float l, float t, float r, float b, int color, int alpha) {
-        p.setShader(null); p.clearShadowLayer(); p.setStyle(Paint.Style.FILL); p.setColor(color); p.setAlpha(alpha); c.drawRect(l, t, r, b, p); p.setAlpha(255);
-    }
-    private void fillRound(Canvas c, float l, float t, float r, float b, float radius, int color, int alpha) {
-        p.setShader(null); p.clearShadowLayer(); p.setStyle(Paint.Style.FILL); p.setColor(color); p.setAlpha(alpha); c.drawRoundRect(new RectF(l,t,r,b), radius, radius, p); p.setAlpha(255);
-    }
-    private void strokeRound(Canvas c, float l, float t, float r, float b, float radius, int color, float width, int alpha) {
-        p.setShader(null); p.clearShadowLayer(); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(width); p.setColor(color); p.setAlpha(alpha); c.drawRoundRect(new RectF(l,t,r,b), radius, radius, p); p.setAlpha(255); p.setStyle(Paint.Style.FILL);
-    }
-    private void fillCircle(Canvas c, float x, float y, float radius, int color, int alpha) {
-        p.setShader(null); p.clearShadowLayer(); p.setStyle(Paint.Style.FILL); p.setColor(color); p.setAlpha(alpha); c.drawCircle(x,y,radius,p); p.setAlpha(255);
-    }
-    private void strokeCircle(Canvas c, float x, float y, float radius, int color, float width, int alpha) {
-        p.setShader(null); p.clearShadowLayer(); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(width); p.setColor(color); p.setAlpha(alpha); c.drawCircle(x,y,radius,p); p.setAlpha(255); p.setStyle(Paint.Style.FILL);
-    }
-    private void strokeLine(Canvas c, float x1, float y1, float x2, float y2, int color, float width) {
-        p.setShader(null); p.clearShadowLayer(); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(width); p.setColor(color); c.drawLine(x1,y1,x2,y2,p); p.setStyle(Paint.Style.FILL);
-    }
-    private void glowLine(Canvas c, float x1, float y1, float x2, float y2, int color, float width, float glow) {
-        p.setShader(null); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(width); p.setColor(color); p.setStrokeCap(Paint.Cap.ROUND); p.setShadowLayer(glow,0,0,color); c.drawLine(x1,y1,x2,y2,p); p.clearShadowLayer(); p.setStrokeCap(Paint.Cap.BUTT); p.setStyle(Paint.Style.FILL);
-    }
-    private void drawArc(Canvas c, RectF r, float start, float sweep, int color, float width, int alpha) {
-        p.setShader(null); p.clearShadowLayer(); p.setStyle(Paint.Style.STROKE); p.setStrokeCap(Paint.Cap.ROUND); p.setStrokeWidth(width); p.setColor(color); p.setAlpha(alpha); c.drawArc(r,start,sweep,false,p); p.setAlpha(255); p.setStrokeCap(Paint.Cap.BUTT); p.setStyle(Paint.Style.FILL);
-    }
-    private void drawArcTrack(Canvas c, float cx, float cy, float radius, float start, float sweep, int color, float width) {
-        RectF r = new RectF(cx-radius,cy-radius,cx+radius,cy+radius); drawArc(c,r,start,sweep,color,width,255);
-    }
-    private void radialLine(Canvas c, float cx, float cy, float r1, float r2, float angle, int color, float width, int alpha) {
-        double a = Math.toRadians(angle); p.setAlpha(alpha); strokeLine(c, cx+(float)Math.cos(a)*r1, cy+(float)Math.sin(a)*r1, cx+(float)Math.cos(a)*r2, cy+(float)Math.sin(a)*r2, color, width); p.setAlpha(255);
-    }
-    private void polarText(Canvas c, String s, float cx, float cy, float radius, float angle, float size, int color) {
-        double a = Math.toRadians(angle); float x = cx+(float)Math.cos(a)*radius; float y = cy+(float)Math.sin(a)*radius + size*.35f; text(c,s,x,y,size,color,Paint.Align.CENTER,true,false);
+    private void smallInfo(Canvas c, String name, String value, float x, float y, float right, int color) {
+        label(c, name, x, y, 10.5f, MUTED, Paint.Align.LEFT, false, false);
+        label(c, truncate(value, 26), right, y, 10.5f, color, Paint.Align.RIGHT, true, false);
+        line(c, x, y + 5, right, y + 5, Color.argb(48, 105, 131, 143), 1f);
     }
 
-    private void drawWifi(Canvas c, float x, float y, int color) {
-        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(2.7f); p.setColor(color); p.setStrokeCap(Paint.Cap.ROUND);
-        c.drawArc(new RectF(x-15,y-8,x+15,y+14),215,110,false,p); c.drawArc(new RectF(x-10,y-3,x+10,y+12),215,110,false,p); fillCircle(c,x,y+9,2.5f,color,255); p.setStrokeCap(Paint.Cap.BUTT); p.setStyle(Paint.Style.FILL);
+    private void label(Canvas c, String s, float x, float y, float size, int color, Paint.Align align, boolean isBold, boolean isWide) {
+        text.clearShadowLayer(); text.setStyle(Paint.Style.FILL); text.setColor(color); text.setTextAlign(align); text.setTextSize(size);
+        text.setTypeface(isWide ? (isBold ? wideBold : wide) : (isBold ? bold : regular));
+        c.drawText(s == null ? "" : s, x, y, text);
     }
+
+    private void glowLabel(Canvas c, String s, float x, float y, float size, int color, Paint.Align align, boolean isBold, float shadow) {
+        glow.setStyle(Paint.Style.FILL); glow.setColor(color); glow.setTextAlign(align); glow.setTextSize(size); glow.setTypeface(isBold ? italicBold : regular);
+        glow.setShadowLayer(shadow, 0, 0, color); c.drawText(s == null ? "" : s, x, y, glow); glow.clearShadowLayer();
+    }
+
+    private void progress(Canvas c, float l, float t, float r, float b, SensorReading reading, int accent) {
+        fill.setColor(Color.rgb(37, 55, 65)); c.drawRoundRect(l, t, r, b, 4, 4, fill);
+        if (reading.state != SensorFreshness.State.VALID || Float.isNaN(reading.value)) return;
+        float f = (reading.value - reading.key.min) / Math.max(.001f, reading.key.max - reading.key.min);
+        f = clamp(f, 0f, 1f);
+        fill.setColor(accent); c.drawRoundRect(l, t, l + (r - l) * f, b, 4, 4, fill);
+    }
+
+    private void scaleLabels(Canvas c, RectF r, SensorKey k, float y) {
+        label(c, fmtScale(k.min), r.left + 18, y, 10.5f, MUTED, Paint.Align.LEFT, false, false);
+        label(c, fmtScale((k.min + k.max) * .5f), r.centerX(), y, 10.5f, MUTED, Paint.Align.CENTER, false, false);
+        label(c, fmtScale(k.max), r.right - 18, y, 10.5f, MUTED, Paint.Align.RIGHT, false, false);
+    }
+
+    private String fmtScale(float v) { return Math.abs(v - Math.round(v)) < .01f ? Integer.toString(Math.round(v)) : String.format(Locale.US, "%.1f", v); }
 
     private void drawToggle(Canvas c, float cx, float cy, boolean on) {
-        fillRound(c,cx-24,cy-11,cx+24,cy+11,11,on?Color.rgb(20,181,107):Color.rgb(58,76,90),255); fillCircle(c,cx+(on?13:-13),cy,8.5f,WHITE,255);
+        fill.setColor(on ? GREEN : Color.rgb(58, 77, 86)); c.drawRoundRect(cx - 22, cy - 10, cx + 22, cy + 10, 10, 10, fill);
+        circle(c, cx + (on ? 11 : -11), cy, 8, WHITE);
     }
 
-    private void drawCheckCircle(Canvas c, float x, float y, int color, boolean checked) {
-        strokeCircle(c,x,y,24,color,3,255); if (checked) { strokeLine(c,x-11,y,x-3,y+8,color,3); strokeLine(c,x-3,y+8,x+13,y-9,color,3); }
+    private void drawHondaMark(Canvas c, float x, float y) {
+        // Lightweight vector approximation of the Honda badge; avoids the square "H" placeholder.
+        tmp.set(x, y, x + 50, y + 42);
+        stroke.setColor(WHITE); stroke.setStrokeWidth(2.2f); c.drawRoundRect(tmp, 11, 11, stroke);
+        path.reset();
+        path.moveTo(x + 12, y + 8);
+        path.lineTo(x + 16, y + 33);
+        path.lineTo(x + 22, y + 33);
+        path.lineTo(x + 25, y + 22);
+        path.lineTo(x + 28, y + 33);
+        path.lineTo(x + 34, y + 33);
+        path.lineTo(x + 38, y + 8);
+        stroke.setColor(WHITE); stroke.setStrokeWidth(3f); stroke.setStyle(Paint.Style.STROKE);
+        c.drawPath(path, stroke);
+        line(c, x + 20, y + 19, x + 30, y + 19, WHITE, 2.5f);
     }
 
-    private void drawIcon(Canvas c, MetricIcon icon, float x, float y, int color, float scale) {
-        p.setColor(color); p.setStrokeWidth(3f*scale); p.setStyle(Paint.Style.STROKE); p.setStrokeCap(Paint.Cap.ROUND); p.clearShadowLayer();
-        switch(icon) {
+    private void drawIcon(Canvas c, Icon icon, float x, float y, int color, float s) {
+        stroke.setStyle(Paint.Style.STROKE); stroke.setStrokeCap(Paint.Cap.ROUND); stroke.setStrokeJoin(Paint.Join.ROUND); stroke.setColor(color); stroke.setStrokeWidth(Math.max(1.4f, 3f * s));
+        fill.setStyle(Paint.Style.FILL); fill.setColor(color);
+        switch (icon) {
             case BATTERY:
-                c.drawRect(x-20*scale,y-15*scale,x+20*scale,y+15*scale,p); strokeLine(c,x-9*scale,y-18*scale,x-3*scale,y-18*scale,color,3*scale); strokeLine(c,x+5*scale,y-18*scale,x+11*scale,y-18*scale,color,3*scale); strokeLine(c,x-10*scale,y,x-2*scale,y,color,2*scale); strokeLine(c,x-6*scale,y-4*scale,x-6*scale,y+4*scale,color,2*scale); strokeLine(c,x+6*scale,y,x+14*scale,y,color,2*scale); break;
-            case THERMOMETER:
-                c.drawCircle(x-8*scale,y+12*scale,7*scale,p); strokeLine(c,x-8*scale,y-20*scale,x-8*scale,y+7*scale,color,4*scale); strokeLine(c,x-4*scale,y-15*scale,x+3*scale,y-15*scale,color,2*scale); break;
-            case FUEL:
-                c.drawRect(x-18*scale,y-18*scale,x+5*scale,y+18*scale,p); strokeLine(c,x-13*scale,y-10*scale,x+1*scale,y-10*scale,color,2*scale); path.reset(); path.moveTo(x+5*scale,y-10*scale); path.lineTo(x+14*scale,y-4*scale); path.lineTo(x+14*scale,y+12*scale); c.drawPath(path,p); break;
+                c.drawRect(x - 19*s, y - 12*s, x + 19*s, y + 12*s, stroke); c.drawRect(x - 7*s, y - 16*s, x + 7*s, y - 12*s, fill); line(c,x-8*s,y,x+8*s,y,color,2*s); line(c,x,y-8*s,x,y+8*s,color,2*s); break;
+            case TEMP:
+                c.drawCircle(x, y + 10*s, 7*s, stroke); line(c,x,y+4*s,x,y-19*s,color,4*s); line(c,x+4*s,y-15*s,x+10*s,y-15*s,color,2*s); break;
             case AIR:
-                for(int i=-1;i<=1;i++){ float yy=y+i*9*scale; strokeLine(c,x-21*scale,yy,x+5*scale,yy,color,3*scale); c.drawArc(new RectF(x-2*scale,yy-7*scale,x+17*scale,yy+7*scale),-80,170,false,p);} break;
-            case ENGINE:
-                c.drawRoundRect(new RectF(x-20*scale,y-12*scale,x+17*scale,y+14*scale),4*scale,4*scale,p); strokeLine(c,x-10*scale,y-17*scale,x+3*scale,y-17*scale,color,3*scale); strokeLine(c,x+17*scale,y-5*scale,x+24*scale,y-5*scale,color,3*scale); break;
+                line(c,x-20*s,y-10*s,x+4*s,y-10*s,color,3*s); line(c,x-20*s,y,x+10*s,y,color,3*s); line(c,x-20*s,y+10*s,x+4*s,y+10*s,color,3*s); arc(c,x+5*s,y,8*s,-90,180,color,2.5f*s); break;
             case THROTTLE:
-                c.rotate(-35,x,y); c.drawRect(x-6*scale,y-21*scale,x+6*scale,y+17*scale,p); c.drawCircle(x,y-23*scale,5*scale,p); c.rotate(35,x,y); break;
+                line(c,x-11*s,y+18*s,x+11*s,y-18*s,color,4*s); c.drawRect(x-16*s,y+7*s,x-5*s,y+14*s,stroke); c.drawRect(x+5*s,y-14*s,x+16*s,y-7*s,stroke); break;
+            case ENGINE:
+                tmp.set(x-18*s,y-10*s,x+17*s,y+12*s); c.drawRoundRect(tmp,4*s,4*s,stroke); line(c,x-23*s,y-3*s,x-18*s,y-3*s,color,3*s); line(c,x+17*s,y,x+23*s,y,color,3*s); line(c,x-9*s,y-15*s,x+7*s,y-15*s,color,3*s); break;
+            case FUEL:
+                c.drawRect(x-16*s,y-18*s,x+2*s,y+18*s,stroke); line(c,x-12*s,y-11*s,x-2*s,y-11*s,color,2*s); path.reset(); path.moveTo(x+3*s,y-13*s); path.lineTo(x+12*s,y-6*s); path.lineTo(x+12*s,y+14*s); path.lineTo(x+17*s,y+18*s); c.drawPath(path,stroke); break;
             case OBD:
-                c.drawRoundRect(new RectF(x-25*scale,y-16*scale,x+25*scale,y+16*scale),5*scale,5*scale,p); for(int i=0;i<5;i++) fillCircle(c,x-15*scale+i*7*scale,y-6*scale,1.7f*scale,color,255); for(int i=0;i<4;i++) fillCircle(c,x-11*scale+i*7*scale,y+6*scale,1.7f*scale,color,255); break;
+                tmp.set(x-27*s,y-17*s,x+27*s,y+17*s); c.drawRoundRect(tmp,5*s,5*s,stroke); for(int i=0;i<4;i++){c.drawCircle(x-15*s+i*10*s,y-7*s,2.4f*s,stroke);c.drawCircle(x-15*s+i*10*s,y+7*s,2.4f*s,stroke);} break;
             case CHIP:
-                c.drawRect(x-15*scale,y-15*scale,x+15*scale,y+15*scale,p); for(int i=-1;i<=1;i++){strokeLine(c,x-24*scale,y+i*10*scale,x-16*scale,y+i*10*scale,color,2*scale);strokeLine(c,x+16*scale,y+i*10*scale,x+24*scale,y+i*10*scale,color,2*scale);} break;
-            case BARS:
-                for(int i=0;i<4;i++) fillRect(c,x-18*scale+i*10*scale,y+15*scale-(i+1)*9*scale,x-13*scale+i*10*scale,y+15*scale,color,255); break;
-            case CLIPBOARD:
-                c.drawRect(x-18*scale,y-18*scale,x+18*scale,y+20*scale,p); c.drawRoundRect(new RectF(x-8*scale,y-23*scale,x+8*scale,y-14*scale),3*scale,3*scale,p); break;
+                c.drawRect(x-16*s,y-16*s,x+16*s,y+16*s,stroke); c.drawRect(x-9*s,y-9*s,x+9*s,y+9*s,stroke); for(int i=-1;i<=1;i++){line(c,x-25*s,y+i*10*s,x-17*s,y+i*10*s,color,2*s);line(c,x+17*s,y+i*10*s,x+25*s,y+i*10*s,color,2*s);line(c,x+i*10*s,y-25*s,x+i*10*s,y-17*s,color,2*s);line(c,x+i*10*s,y+17*s,x+i*10*s,y+25*s,color,2*s);} break;
+            case GEAR:
+                strokeCircle(c,x,y,13*s,color,3*s); strokeCircle(c,x,y,4*s,color,2*s); for(int i=0;i<8;i++){double a=Math.toRadians(i*45);line(c,x+(float)Math.cos(a)*13*s,y+(float)Math.sin(a)*13*s,x+(float)Math.cos(a)*19*s,y+(float)Math.sin(a)*19*s,color,3*s);} break;
+            case LINK:
+                arc(c,x-7*s,y,11*s,45,180,color,3*s); arc(c,x+7*s,y,11*s,225,180,color,3*s); line(c,x-8*s,y+8*s,x+8*s,y-8*s,color,3*s); break;
+            case SEARCH:
+                strokeCircle(c,x-4*s,y-4*s,10*s,color,3*s); line(c,x+4*s,y+4*s,x+14*s,y+14*s,color,3*s); break;
+            case LIST:
+                for(int i=0;i<3;i++){circle(c,x-14*s,y-10*s+i*10*s,2*s,color);line(c,x-7*s,y-10*s+i*10*s,x+16*s,y-10*s+i*10*s,color,2*s);} break;
+            case LOG:
+                c.drawRect(x-12*s,y-17*s,x+12*s,y+17*s,stroke); for(int i=0;i<3;i++)line(c,x-7*s,y-8*s+i*8*s,x+7*s,y-8*s+i*8*s,color,2*s); break;
+            case CLOCK:
+                strokeCircle(c,x,y,15*s,color,2.5f*s);line(c,x,y,x,y-9*s,color,2.5f*s);line(c,x,y,x+7*s,y+4*s,color,2.5f*s); break;
+            case PULSE:
+                path.reset();path.moveTo(x-20*s,y);path.lineTo(x-10*s,y);path.lineTo(x-5*s,y-10*s);path.lineTo(x+2*s,y+11*s);path.lineTo(x+8*s,y-5*s);path.lineTo(x+12*s,y);path.lineTo(x+20*s,y);c.drawPath(path,stroke);break;
+            case RADIO:
+                strokeCircle(c,x,y,5*s,color,2*s);arc(c,x,y,13*s,210,120,color,2*s);arc(c,x,y,20*s,210,120,color,2*s);break;
+            case BLUETOOTH:
+                path.reset();
+                path.moveTo(x, y-20*s); path.lineTo(x+11*s, y-9*s); path.lineTo(x-8*s, y+10*s);
+                path.moveTo(x, y+20*s); path.lineTo(x+11*s, y+9*s); path.lineTo(x-8*s, y-10*s);
+                line(c,x,y-20*s,x,y+20*s,color,2.6f*s); c.drawPath(path,stroke); break;
+            case FLAG:
+                line(c,x-17*s,y-19*s,x-17*s,y+21*s,color,3*s); for(int rr=0;rr<3;rr++)for(int cc=0;cc<3;cc++)if((rr+cc)%2==0)c.drawRect(x-14*s+cc*9*s,y-17*s+rr*9*s,x-6*s+cc*9*s,y-9*s+rr*9*s,fill);break;
+            case WARNING:
+                path.reset();path.moveTo(x,y-21*s);path.lineTo(x+20*s,y+18*s);path.lineTo(x-20*s,y+18*s);path.close();c.drawPath(path,stroke);line(c,x,y-8*s,x,y+5*s,color,3*s);circle(c,x,y+12*s,2*s,color);break;
+            case CHECK:
+                c.drawRect(x-14*s,y-17*s,x+14*s,y+17*s,stroke);drawCheck(c,x,y,color,.5f*s);break;
+            case O2:
+                strokeCircle(c,x-7*s,y,13*s,color,3*s);label(c,"2",x+8*s,y+11*s,15*s,color,Paint.Align.CENTER,true,false);break;
+            case SNOW:
+                for(int i=0;i<3;i++){double a=Math.toRadians(i*60);float dx=(float)Math.cos(a)*20*s,dy=(float)Math.sin(a)*20*s;line(c,x-dx,y-dy,x+dx,y+dy,color,2*s);}break;
+            case LEAF:
+                tmp.set(x-18*s,y-14*s,x+17*s,y+13*s);c.drawOval(tmp,stroke);line(c,x-12*s,y+12*s,x+13*s,y-10*s,color,2*s);break;
+            case INFO:
+                strokeCircle(c,x,y,18*s,color,2.5f*s);label(c,"i",x,y+8*s,22*s,color,Paint.Align.CENTER,true,false);break;
+            case WIFI:
+                arc(c,x,y+5*s,18*s,210,120,color,2.5f*s);arc(c,x,y+5*s,11*s,210,120,color,2.5f*s);circle(c,x,y+11*s,2.5f*s,color);break;
+            case ROAD:
+                line(c,x-16*s,y+20*s,x-7*s,y-20*s,color,4*s);line(c,x+16*s,y+20*s,x+7*s,y-20*s,color,4*s);break;
         }
-        p.setStrokeCap(Paint.Cap.BUTT); p.setStyle(Paint.Style.FILL);
     }
 
-    private void drawRoadIcon(Canvas c,float x,float y,int color){strokeLine(c,x-18,y+22,x-8,y-22,color,5);strokeLine(c,x+18,y+22,x+8,y-22,color,5);strokeLine(c,x,y+20,x,y+10,color,3);strokeLine(c,x,y+2,x,y-7,color,3);strokeLine(c,x,y-14,x,y-22,color,3);}
-    private void drawFlagIcon(Canvas c,float x,float y,int color){p.setStyle(Paint.Style.FILL);p.setColor(color);for(int rr=0;rr<3;rr++)for(int cc=0;cc<3;cc++)if((rr+cc)%2==0)c.drawRect(x-20+cc*13,y-20+rr*13,x-8+cc*13,y-8+rr*13,p);strokeLine(c,x-23,y-23,x-23,y+24,color,3);p.setColor(color);}
-    private void drawGearIcon(Canvas c,float x,float y,int color){strokeCircle(c,x,y,20,color,5,255);strokeCircle(c,x,y,7,color,4,255);for(int i=0;i<8;i++){double a=Math.toRadians(i*45);strokeLine(c,x+(float)Math.cos(a)*20,y+(float)Math.sin(a)*20,x+(float)Math.cos(a)*27,y+(float)Math.sin(a)*27,color,5);}}
-
-    // ---------------- Formatting ----------------
-
-    private boolean finite(float v) { return !Float.isNaN(v) && !Float.isInfinite(v); }
-    private float clamp(float v) { return Math.max(0f, Math.min(1f, v)); }
-    private String value(float v) { return finite(v) ? String.format(Locale.US, "%.0f", v) : "--"; }
-    private String value1(float v) { return finite(v) ? String.format(Locale.US, "%.1f", v) : "--"; }
-    private String pidValue(float v, int pid, int decimals) {
-        if (telemetry.capabilitiesKnown && !telemetry.supports(pid)) return "N/A";
-        if (!finite(v)) return "--";
-        return String.format(Locale.US, decimals == 0 ? "%.0f" : "%.1f", v);
+    private void drawCheck(Canvas c, float x, float y, int color, float scale) {
+        line(c, x - 12*scale, y, x - 3*scale, y + 9*scale, color, 3*scale);
+        line(c, x - 3*scale, y + 9*scale, x + 14*scale, y - 10*scale, color, 3*scale);
     }
-    private String pidUnitValue(float v, int pid, String unit, int decimals) {
-        String base = pidValue(v, pid, decimals);
-        if ("--".equals(base) || "N/A".equals(base)) return base;
-        return base + " " + unit;
+
+    private void line(Canvas c, float x1, float y1, float x2, float y2, int color, float width) {
+        stroke.setColor(color); stroke.setStrokeWidth(width); stroke.setStyle(Paint.Style.STROKE); c.drawLine(x1,y1,x2,y2,stroke);
     }
-    private String unitValue(float v, String unit, int decimals) { if(!finite(v)) return "--"; return String.format(Locale.US, decimals==0?"%.0f %s":"%.1f %s",v,unit); }
-    private String formatTick(float v) { return Math.abs(v - Math.round(v)) < .01 ? Integer.toString(Math.round(v)) : String.format(Locale.US,"%.1f",v); }
-    private String transportLabel(ObdManager.Transport t) { if(t==null)return "AUTO"; switch(t){case BLUETOOTH:return "BT 3.0";case BLE:return "BLE 4.0";case WIFI:return "WI-FI";default:return "AUTO";} }
+    private void circle(Canvas c, float x, float y, float r, int color) { fill.setColor(color); fill.setStyle(Paint.Style.FILL); c.drawCircle(x,y,r,fill); }
+    private void strokeCircle(Canvas c, float x,float y,float r,int color,float width){stroke.setColor(color);stroke.setStrokeWidth(width);stroke.setStyle(Paint.Style.STROKE);c.drawCircle(x,y,r,stroke);}
+    private void arc(Canvas c,float cx,float cy,float radius,float start,float sweep,int color,float width){tmp.set(cx-radius,cy-radius,cx+radius,cy+radius);stroke.setColor(color);stroke.setStrokeWidth(width);stroke.setStyle(Paint.Style.STROKE);stroke.setStrokeCap(Paint.Cap.BUTT);c.drawArc(tmp,start,sweep,false,stroke);stroke.setStrokeCap(Paint.Cap.ROUND);}
+    private void radialLine(Canvas c,float cx,float cy,float r1,float r2,float angle,int color,float width){double a=Math.toRadians(angle);line(c,cx+(float)Math.cos(a)*r1,cy+(float)Math.sin(a)*r1,cx+(float)Math.cos(a)*r2,cy+(float)Math.sin(a)*r2,color,width);}
+    private void polarLabel(Canvas c,String s,float cx,float cy,float r,float angle,float size,int color){double a=Math.toRadians(angle);label(c,s,cx+(float)Math.cos(a)*r,cy+(float)Math.sin(a)*r+size*.35f,size,color,Paint.Align.CENTER,true,false);}
+
+    private String transportLabel(ObdManager.Transport t) {
+        if (t == null) return "AUTO";
+        switch (t) { case BLE: return "BLE 4.0"; case BLUETOOTH: return "BT 3.0"; case WIFI: return "Wi-Fi"; default: return "AUTO"; }
+    }
     private String nonEmpty(String s,String fallback){return s==null||s.trim().isEmpty()?fallback:s;}
     private String truncate(String s,int max){if(s==null)return "";return s.length()<=max?s:s.substring(0,Math.max(0,max-1))+"…";}
-    private String join(List<String> items,int max){StringBuilder b=new StringBuilder();for(int i=0;i<items.size()&&i<max;i++){if(i>0)b.append("  ");b.append(items.get(i));}return b.toString();}
-    private String stateFriendly(){switch(obdState){case ECU_CONNECTED:return "Connected";case SEARCHING:return "Searching";case ADAPTER_FOUND:return "Adapter found";case CONNECTING:return "Connecting";case INITIALIZING:return "Initializing";case ECU_CONNECTING:return "ECU handshake";case PERMISSION_REQUIRED:return "Permission required";case ERROR:return "Error";default:return "Disconnected";}}
+    private float clamp(float v,float min,float max){return Math.max(min,Math.min(max,v));}
 }
