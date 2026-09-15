@@ -1,0 +1,18 @@
+CIVIC FA1 DASHBOARD v0.7.0 -> Dashboard-2
+
+1. In GitHub Desktop open repository:
+   KenshinNnnnnV/Civic-FA1-Dashboard-2
+2. Repository -> Show in Explorer.
+3. Back up the current repository folder if desired.
+4. Extract this ZIP.
+5. Copy the CONTENTS of the extracted folder into the repository root with replacement.
+   Do not copy the outer ZIP folder as a nested directory.
+6. In GitHub Desktop review Changes.
+7. Commit message suggestion:
+   Civic FA1 Dashboard v0.7.0 product UI rewrite
+8. Push origin.
+9. Open GitHub -> Actions -> Build Android APK.
+10. Expected artifact:
+    Civic-FA1-Dashboard-v0.7.0-APK
+
+If Actions is red, send the failed job/log to ChatGPT before installing anything on the head unit.

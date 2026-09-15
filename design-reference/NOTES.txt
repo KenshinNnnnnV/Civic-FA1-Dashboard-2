@@ -1,0 +1,10 @@
+Civic FA1 Dashboard v0.7.0 design references
+
+The three JPGs in this folder are visual specifications only:
+- connect_reference.jpg
+- sport_reference.jpg
+- diagnostics_reference.jpg
+
+They are NOT runtime backgrounds and must not be used as full-screen screenshots inside the app.
+Runtime backgrounds under app/src/main/res/drawable-nodpi/ contain decorative artwork only.
+All values, statuses, gauges, cards and navigation are programmatic UI.
