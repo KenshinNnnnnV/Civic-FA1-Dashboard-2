@@ -1,45 +1,73 @@
-# v0.5.0 road-test checklist
+# Civic FA1 Dashboard v0.6.0 — road test checklist
 
-## Before launch
+Target: Honda Civic FA1 2011, R18A 1.8, UIS8581A 1280×720 head unit, Vgate iCar Pro BLE 4.0 DUAL.
 
-1. Plug Vgate iCar Pro into the OBD-II socket.
+## A. Before testing
+
+1. Plug the Vgate adapter into OBD-II.
 2. Ignition ON or engine running.
-3. In Android Bluetooth settings pair the Android-side adapter endpoint (commonly `Android-Vlink`; common PIN `1234`).
-4. Make sure Car Scanner is fully disconnected/closed before testing Civic FA1 Dashboard. Only one app should own the adapter link at a time.
+3. Fully close/disconnect Car Scanner so it does not own the adapter simultaneously.
+4. Turn Bluetooth on and grant the dashboard Bluetooth permissions when requested.
+5. Keep the car stationary for the initial connection test.
 
-## Connect in Civic FA1 Dashboard
+## B. Visual / lifecycle
 
-1. Open **Diagnostics**.
-2. Tap **OBD CONNECTION**.
-3. Select **BT 3.0**.
-4. Tap **REFRESH**.
-5. Select the paired Vgate / Android-Vlink device.
-6. Tap **CONNECT SELECTED**.
+1. Launch app; verify 1280×720 layout fits with no grey/black masks over data fields.
+2. Switch Street → Sport → Diagnostics repeatedly; geometry and tab height must not jump.
+3. Street active tab: green glow; Sport: red; Diagnostics: cyan.
+4. Put app in background and return; there must be no crash or duplicated connection task.
+5. Turn screen off/on once and verify reconnect behavior is controlled.
 
-Expected status sequence:
+## C. Connection Manager
 
-`ADAPTER FOUND` → `CONNECTING` → `INITIALIZING` → `ECU` → `OBD: CONNECTED`
+1. Open Diagnostics → OBD Connection.
+2. Test BT 3.0 list and Scan.
+3. Test BLE list and Scan.
+4. Verify devices show name/address/transport and list can scroll.
+5. Select the exact Vgate endpoint that works in Car Scanner.
+6. Connect; expected stages: Adapter found → Connecting → Initializing → ECU handshake → Connected.
+7. Disconnect must immediately stop the session and cancel reconnect.
+8. Toggle Auto reconnect and verify the preference persists after app restart.
+9. For Wi‑Fi, edit host/port and confirm the values persist.
 
-No sensor value is fabricated. Until the ECU has responded, all live fields remain `--`.
+## D. Honest data behavior
 
-## Verify live values
+Before ECU handshake:
+- RPM/speed/temperatures/load/throttle/fuel/voltage = `--`.
+- A bitmap-confirmed unsupported PID = `N/A`.
+- No random values are allowed.
 
-- Engine off / ignition on: RPM should be 0 or unavailable; voltage should be plausible.
-- Engine running at idle: RPM should be stable around actual idle.
-- Light throttle: RPM and Sport tachometer should rise together.
-- Drive slowly: speed should follow the vehicle and return to 0 when stopped.
-- Coolant should change slowly, not jump.
-- Throttle and load should react to accelerator input.
+After ECU handshake:
+- RPM at idle follows the real engine.
+- Light throttle makes RPM and the Sport tachometer move together.
+- Speed follows vehicle movement and returns to zero when stopped.
+- Coolant changes slowly and plausibly.
+- Throttle/load react to pedal input.
+- ECU module voltage and adapter voltage are not mislabeled as the same source.
 
-## If connection fails
+## E. Diagnostics truthfulness
 
-Photograph the exact status line shown by the app. The message distinguishes:
+1. DTC must show Not available / Not read until Mode 03 completes successfully.
+2. `No fault codes` is allowed only after a valid empty Mode 03 result.
+3. Readiness monitors must show Complete / Incomplete / N/A from real PID 0101 bits.
+4. Do not test Clear DTC while driving; the app must never issue Mode 04 automatically.
 
-- Bluetooth permission missing
-- paired adapter not found
-- Bluetooth serial link failure
-- ELM327 did not respond
-- adapter connected but ECU did not answer
-- live link lost
+## F. Failure/reconnect cases
 
-Also note the adapter name shown in Android Bluetooth settings.
+Test and photograph the exact status if any fails:
+- Bluetooth off
+- Permission denied
+- Adapter out of range/unplugged
+- Ignition OFF
+- Adapter transport connects but ELM does not answer
+- ELM answers but ECU does not return valid 41 00 bitmap
+- Link lost while live
+- Reconnect after ignition cycle
+
+## G. Build verification after GitHub Actions
+
+After a green workflow run verify:
+- artifact name `Civic-FA1-Dashboard-v0.6.0-APK`
+- versionName `0.6.0`
+- versionCode `16`
+- APK installs over the previous debug build if signed with the same debug key in CI environment; otherwise uninstall previous build first

@@ -2,12 +2,17 @@ package com.civicfa1.dashboard;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.text.InputType;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -16,6 +21,11 @@ public class MainActivity extends Activity {
 
     private static final int BT_PERMISSION_REQUEST = 704;
     private DashboardView dashboardView;
+    private boolean permissionDialogShown;
+
+    public interface WifiEndpointCallback {
+        void onEndpoint(String host, int port);
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -23,7 +33,8 @@ public class MainActivity extends Activity {
         hideSystemUi();
         dashboardView = new DashboardView(this);
         setContentView(dashboardView);
-        requestBluetoothPermissionsIfNeeded();
+        // Explain why Bluetooth permission is needed instead of requesting it without context.
+        if (!hasObdBluetoothPermissions()) showBluetoothPermissionExplanation();
     }
 
     public boolean hasObdBluetoothPermissions() {
@@ -34,7 +45,30 @@ public class MainActivity extends Activity {
         return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
     }
 
-    private void requestBluetoothPermissionsIfNeeded() {
+    public void requestObdBluetoothPermissions() {
+        if (hasObdBluetoothPermissions()) {
+            if (dashboardView != null) dashboardView.onBluetoothPermissionResult(true);
+            return;
+        }
+        showBluetoothPermissionExplanation();
+    }
+
+    private void showBluetoothPermissionExplanation() {
+        if (permissionDialogShown || isFinishing()) return;
+        permissionDialogShown = true;
+        new AlertDialog.Builder(this)
+                .setTitle("OBD Bluetooth access")
+                .setMessage("Bluetooth permission is used only to scan and connect your OBD-II adapter. Live vehicle data remains unavailable until you connect an adapter.")
+                .setNegativeButton("Not now", (d, which) -> permissionDialogShown = false)
+                .setPositiveButton("Continue", (d, which) -> {
+                    permissionDialogShown = false;
+                    requestBluetoothPermissionsNow();
+                })
+                .setOnCancelListener(d -> permissionDialogShown = false)
+                .show();
+    }
+
+    private void requestBluetoothPermissionsNow() {
         if (hasObdBluetoothPermissions()) return;
         List<String> permissions = new ArrayList<>();
         if (Build.VERSION.SDK_INT >= 31) {
@@ -54,6 +88,58 @@ public class MainActivity extends Activity {
         }
     }
 
+    public void promptWifiEndpoint(String currentHost, int currentPort, WifiEndpointCallback callback) {
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (18 * getResources().getDisplayMetrics().density);
+        layout.setPadding(pad, pad / 2, pad, 0);
+
+        EditText host = new EditText(this);
+        host.setHint("Host / IP");
+        host.setSingleLine(true);
+        host.setText(currentHost == null ? "" : currentHost);
+        layout.addView(host);
+
+        EditText port = new EditText(this);
+        port.setHint("Port");
+        port.setSingleLine(true);
+        port.setInputType(InputType.TYPE_CLASS_NUMBER);
+        port.setText(Integer.toString(currentPort));
+        layout.addView(port);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Wi-Fi ELM327 endpoint")
+                .setView(layout)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Save", (d, which) -> {
+                    String h = host.getText().toString().trim();
+                    int p;
+                    try { p = Integer.parseInt(port.getText().toString().trim()); }
+                    catch (NumberFormatException e) { p = -1; }
+                    if (h.isEmpty() || p < 1 || p > 65535) {
+                        Toast.makeText(this, "Enter a valid host and port", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    if (callback != null) callback.onEndpoint(h, p);
+                })
+                .show();
+    }
+
+    @Override protected void onStart() {
+        super.onStart();
+        if (dashboardView != null) dashboardView.onHostStart();
+    }
+
+    @Override protected void onStop() {
+        if (dashboardView != null) dashboardView.onHostStop();
+        super.onStop();
+    }
+
+    @Override protected void onDestroy() {
+        if (dashboardView != null) dashboardView.destroy();
+        super.onDestroy();
+    }
+
     private void hideSystemUi() {
         if (Build.VERSION.SDK_INT >= 30) {
             WindowInsetsController controller = getWindow().getInsetsController();
@@ -70,8 +156,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    @Override
-    protected void onResume() {
+    @Override protected void onResume() {
         super.onResume();
         hideSystemUi();
     }

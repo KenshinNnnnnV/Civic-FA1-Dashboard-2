@@ -1,0 +1,20 @@
+TARGET REPOSITORY
+KenshinNnnnnV/Civic-FA1-Dashboard-2
+
+HOW TO UPLOAD WITH GITHUB DESKTOP
+1. Open Civic-FA1-Dashboard-2 in GitHub Desktop.
+2. Repository -> Show in Explorer.
+3. Make a backup of the current repository folder.
+4. Open this v0.6.0 package.
+5. Copy the CONTENTS of this package into the repository root (not the outer folder itself).
+6. Allow Windows to replace files with the same names.
+7. In GitHub Desktop verify changes.
+8. Commit message suggestion: Civic FA1 Dashboard v0.6.0 OBD reliability audit
+9. Push origin.
+10. Open GitHub Actions and wait for Build Android APK.
+
+EXPECTED ARTIFACT
+Civic-FA1-Dashboard-v0.6.0-APK
+
+IMPORTANT
+Do not copy .git from anywhere. This package intentionally does not contain a .git directory.

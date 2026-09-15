@@ -30,12 +30,15 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Run unit tests
+        run: gradle :app:testDebugUnitTest --stacktrace
+
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Civic-FA1-Dashboard-v0.5.0-APK
+          name: Civic-FA1-Dashboard-v0.6.0-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
