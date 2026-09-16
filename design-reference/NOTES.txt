@@ -1,10 +1,11 @@
-Civic FA1 Dashboard v0.7.0 design references
+Civic FA1 Dashboard visual references
 
-The three JPGs in this folder are visual specifications only:
-- connect_reference.jpg
-- sport_reference.jpg
-- diagnostics_reference.jpg
+FINAL LOCKED NO-OBD REFERENCES:
+- approved-v0.8.1/connect_disconnected_1280.png
+- approved-v0.8.1/sport_disconnected_1280.png
+- approved-v0.8.1/diagnostics_disconnected_1280.png
 
-They are NOT runtime backgrounds and must not be used as full-screen screenshots inside the app.
-Runtime backgrounds under app/src/main/res/drawable-nodpi/ contain decorative artwork only.
-All values, statuses, gauges, cards and navigation are programmatic UI.
+These three images are the visual source of truth approved in chat.
+They are 1280x720 and define geometry, artwork, panel proportions, navigation and disconnected-state appearance.
+
+Runtime uses these locked shells. Dynamic code may replace only real values/status areas. No alternative redesign is allowed without explicit approval.

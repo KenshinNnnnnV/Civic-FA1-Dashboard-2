@@ -1,75 +1,29 @@
-# Civic FA1 Dashboard v0.7.0
+# Civic FA1 Dashboard v0.8.1
 
-Native Android dashboard for Honda Civic FA1 2011 (R18A 1.8L), optimized for a 1280×720 landscape UIS8581A head unit with 2 GB RAM.
+Native Android dashboard for Honda Civic FA1 2011 (R18A 1.8L), targeted at the 1280×720 UIS8581A head unit with 2 GB RAM.
 
-## Product structure
+## Locked visual design
+The approved no-OBD screens in `design-reference/approved-v0.8.1/` are the visual source of truth. v0.8.1 locks exactly the CONNECT / SPORT / DIAGNOSTICS composition approved in chat.
 
-The application now has exactly three modes:
+The application does not use the numbers in reference art as telemetry. SPORT and DIAGNOSTICS use truthful disconnected references with `--` / `N/A` / `WAITING FOR ECU`; once real data exists, native overlays replace only the changing value regions. CONNECT masks example device/session areas at runtime so fake adapters are never shown as real discoveries.
 
-- **CONNECT** — adapter discovery, transport selection, connection state, settings and connection diagnostics.
-- **SPORT** — the single primary driving dashboard, with a fixed RPM tachometer + speed and five user-selectable secondary sensor widgets.
-- **DIAGNOSTICS** — DTC, readiness, emissions/system state, ECU information and live sensor data only. Connection controls are intentionally not duplicated here.
+## Modes
+- **CONNECT** — device discovery/selection, BLE/BT/Wi-Fi preference, AUTO policy, settings and staged connection diagnostics.
+- **SPORT** — fixed center tachometer/speed plus five configurable secondary sensor widgets.
+- **DIAGNOSTICS** — DTC, readiness, live sensors, freeze-frame status, emissions/system status and ECU information.
 
-The former Street mode has been removed.
+## Data integrity
+- disconnected/missing/stale -> `--`
+- unsupported PID -> `N/A`
+- no random/simulator telemetry
+- `NO FAULT CODES` only after valid Mode 03 zero-code response
+- readiness only from real PID 0101
+- module voltage PID 0142 remains separate from ELM `ATRV`
 
-## UI architecture
-
-The reference images in `design-reference/` are visual specifications only. They are not used as full-screen runtime screenshots.
-
-Runtime artwork in `app/src/main/res/drawable-nodpi/` contains decorative city/car imagery only. All cards, gauges, text, statuses, progress bars, navigation and numeric values are drawn programmatically on a fixed logical 1280×720 canvas.
-
-No dynamic value is baked into a JPEG. Normal mode contains no random/fake telemetry.
-
-## OBD architecture retained from v0.6.0
-
-- Session/generation isolation so stale callbacks cannot overwrite a new connection.
-- BLE service discovery and CCCD subscription before ELM initialization.
-- BLE UART selection only from supported service/characteristic pairs.
-- Cancelable Bluetooth Classic connect with secure → insecure SPP fallback.
-- AUTO only reuses a previously ECU-verified adapter.
-- ECU connected only after a full valid `41 00 A B C D` response.
-- Supported PID bitmap discovery (`0100`, continuation pages such as `0120`, `0140`).
-- Sequential ELM command queue; timeout without prompt `>` is incomplete.
-- Strict line-oriented parser; text errors are not harvested as hexadecimal payload.
-- Per-sensor freshness/stale handling.
-- Real readiness parsing from PID `0101`.
-- Distinct DTC states: not read, error, no codes, codes present.
-- PID `0142` module voltage is separate from ELM `ATRV` adapter voltage.
-- PID `0106` and `0107` fuel trims retained.
-- Priority polling scheduler; no parallel ELM commands.
-- Bounded debug logging and log export.
-
-## Sport widget customization
-
-Tap any of the five secondary Sport cards to open the sensor picker. The tachometer and vehicle speed are fixed and cannot be replaced.
-
-Available secondary sensors currently include coolant, intake, module voltage, adapter voltage, throttle, engine load, fuel level, MAF, MAP, STFT, LTFT, ignition timing and fuel rate.
-
-Selections are stored in `SharedPreferences` and restored after restart.
-
-## Honest data rules
-
-- ECU disconnected / data not available → `--`
-- Supported PID but stale → `--`
-- Capability bitmap says PID unsupported → `N/A`
-- `NO FAULT CODES` only after a valid Mode 03 response with zero stored codes.
-- Readiness is never fabricated.
-- VIN / calibration / ECU identity stay `N/A` unless genuinely obtained.
-- No automatic Mode 04 / DTC clear.
+## Connection scope
+v0.8.1 preserves the v0.7.1 OBD transport/protocol work. The UIS8581A Bluetooth compatibility problem is still diagnosed separately; multiple adapters and Car Scanner on the head unit have failed to establish the data connection, so this visual release does not claim Bluetooth is solved.
 
 ## Build
+Expected toolchain: Java 17, compileSdk/targetSdk 34, build-tools 34.0.0, Gradle 8.9.
 
-Expected environment:
-
-- Java 17
-- compileSdk / targetSdk 34
-- build-tools 34.0.0
-- Gradle 8.9
-
-GitHub Actions runs unit tests and `:app:assembleDebug`, then uploads:
-
-`Civic-FA1-Dashboard-v0.7.0-APK`
-
-## Important real-car note
-
-The target adapter is Vgate iCar Pro BLE 4.0 DUAL. The adapter is known to work with the same vehicle through Car Scanner; therefore transport or ECU failures in this application should be debugged as application/protocol issues first rather than blamed on the adapter.
+GitHub Actions runs tests and `:app:assembleDebug`, then uploads `Civic-FA1-Dashboard-v0.8.1-APK`.

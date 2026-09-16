@@ -12,6 +12,7 @@ import android.bluetooth.BluetoothSocket;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanResult;
+import android.bluetooth.le.ScanSettings;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -214,6 +215,12 @@ public final class ObdManager {
     private static final UUID NUS_SERVICE = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
     private static final UUID NUS_WRITE = UUID.fromString("6e400002-b5a3-f393-e0a9-e50e24dcca9e");
     private static final UUID NUS_NOTIFY = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9e");
+    // Vgate iCar Pro / VLink BLE profile observed on iCar Pro BLE 4.0 hardware.
+    private static final UUID VGATE_SERVICE_18F0 = UUID.fromString("000018f0-0000-1000-8000-00805f9b34fb");
+    private static final UUID VGATE_NOTIFY_2AF0 = UUID.fromString("00002af0-0000-1000-8000-00805f9b34fb");
+    private static final UUID VGATE_WRITE_2AF1 = UUID.fromString("00002af1-0000-1000-8000-00805f9b34fb");
+    private static final UUID VGATE_VENDOR_SERVICE = UUID.fromString("e7810a71-73ae-499d-8c15-faa9aef0c3f2");
+    private static final UUID VGATE_VENDOR_CHAR = UUID.fromString("bef8d6c9-9c21-4c9e-b632-bd58c1009f9f");
 
     private static final long BLE_SUBSCRIBE_TIMEOUT_MS = 4500L;
 
@@ -256,6 +263,7 @@ public final class ObdManager {
         final DtcResult dtc = new DtcResult();
         final Map<Integer, Long> nextDue = new HashMap<>();
         int consecutiveTransportFailures;
+        int bleScanToken;
         String adapterName = "";
         String address = "";
         String wifiHost = "";
@@ -357,36 +365,64 @@ public final class ObdManager {
     public void scanBleDevices() {
         if (!ensureBluetoothReady(Transport.BLE)) return;
         final Session s = beginSession(Transport.BLE);
+        final Map<String, DeviceInfo> found = new LinkedHashMap<>();
+        startBleScanAttempt(s, found, 0);
+    }
+
+    private void startBleScanAttempt(Session s, Map<String, DeviceInfo> found, int attempt) {
+        if (!isCurrent(s) || s.cancelled) return;
         try {
+            try { bluetoothAdapter.cancelDiscovery(); } catch (SecurityException ignored) { }
             s.scanner = bluetoothAdapter.getBluetoothLeScanner();
             if (s.scanner == null) {
                 postState(s, State.ERROR, "BLE scanner unavailable", Transport.BLE, "");
                 return;
             }
-            Map<String, DeviceInfo> found = new LinkedHashMap<>();
-            postState(s, State.SEARCHING, "Scanning BLE devices", Transport.BLE, "");
+            final int token = ++s.bleScanToken;
+            postState(s, State.SEARCHING, attempt == 0 ? "Scanning BLE devices" : "Retrying BLE scan", Transport.BLE, "");
             s.scanCallback = new ScanCallback() {
                 @Override public void onScanResult(int callbackType, ScanResult result) {
-                    if (!isCurrent(s)) return;
+                    if (!isCurrent(s) || token != s.bleScanToken || result == null) return;
                     BluetoothDevice d = result.getDevice();
+                    if (d == null) return;
                     DeviceInfo info = new DeviceInfo(safeName(d), safeAddress(d), Transport.BLE, isBonded(d), result.getRssi());
                     found.put(info.key(), info);
                     postDevices(new ArrayList<>(found.values()));
                 }
+
+                @Override public void onBatchScanResults(List<ScanResult> results) {
+                    if (!isCurrent(s) || token != s.bleScanToken || results == null) return;
+                    for (ScanResult result : results) onScanResult(0, result);
+                }
+
                 @Override public void onScanFailed(int errorCode) {
-                    if (!isCurrent(s)) return;
+                    if (!isCurrent(s) || token != s.bleScanToken) return;
                     stopBleScan(s);
-                    postState(s, State.ERROR, "BLE scan error " + errorCode, Transport.BLE, "");
+                    debugCore("BLE scan failed code=" + errorCode + " attempt=" + attempt);
+                    // Error 2 is common on vendor head units when the BLE scanner registration
+                    // is temporarily stuck. Retry the same session after a short cooldown.
+                    if (errorCode == ScanCallback.SCAN_FAILED_APPLICATION_REGISTRATION_FAILED && attempt < 2) {
+                        main.postDelayed(() -> startBleScanAttempt(s, found, attempt + 1), 900L * (attempt + 1));
+                    } else {
+                        postState(s, State.ERROR, "BLE scan error " + errorCode, Transport.BLE, "");
+                    }
                 }
             };
-            s.scanner.startScan(s.scanCallback);
+            ScanSettings settings = new ScanSettings.Builder()
+                    .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                    .build();
+            s.scanner.startScan(null, settings, s.scanCallback);
             main.postDelayed(() -> {
-                if (!isCurrent(s) || s.cancelled) return;
+                if (!isCurrent(s) || s.cancelled || token != s.bleScanToken) return;
                 stopBleScan(s);
-                postState(s, State.DISCONNECTED, "BLE scan complete — choose a device", Transport.BLE, "");
-            }, 10000L);
+                postState(s, State.DISCONNECTED, found.isEmpty() ?
+                        "BLE scan complete — no devices found" : "BLE scan complete — choose a device",
+                        Transport.BLE, "");
+            }, 12000L);
         } catch (SecurityException e) {
             postState(s, State.PERMISSION_REQUIRED, "Bluetooth scan permission required", Transport.BLE, "");
+        } catch (Exception e) {
+            postState(s, State.ERROR, "BLE scan could not start: " + cleanError(e), Transport.BLE, "");
         }
     }
 
@@ -574,6 +610,7 @@ public final class ObdManager {
                     }
                     if (newState == BluetoothProfile.STATE_CONNECTED) {
                         try {
+                            try { g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH); } catch (Exception ignored) { }
                             if (!g.discoverServices()) failSession(s, "BLE service discovery could not start");
                         } catch (SecurityException e) {
                             failSession(s, "Bluetooth permission required");
@@ -585,8 +622,9 @@ public final class ObdManager {
 
                 @Override public void onServicesDiscovered(BluetoothGatt g, int status) {
                     if (!isCurrent(s)) return;
+                    logGattLayout(g);
                     if (status != BluetoothGatt.GATT_SUCCESS || !selectBleUart(s, g)) {
-                        failSession(s, "Supported BLE UART profile not found");
+                        failSession(s, "Supported BLE UART profile not found — open View Log");
                         return;
                     }
                     if (!startBleSubscription(s, g)) {
@@ -616,16 +654,16 @@ public final class ObdManager {
                 }
 
                 @Override public void onCharacteristicChanged(BluetoothGatt g, BluetoothGattCharacteristic characteristic) {
-                    if (!isCurrent(s) || characteristic == null) return;
-                    byte[] data = characteristic.getValue();
-                    if (data == null || data.length == 0) return;
-                    synchronized (s.bleRxLock) {
-                        s.bleRx.append(new String(data, StandardCharsets.US_ASCII));
-                        s.bleRxLock.notifyAll();
-                    }
+                    if (characteristic == null) return;
+                    appendBleRx(s, characteristic.getValue());
+                }
+
+                @Override public void onCharacteristicChanged(BluetoothGatt g, BluetoothGattCharacteristic characteristic, byte[] value) {
+                    appendBleRx(s, value);
                 }
             };
-            s.gatt = device.connectGatt(context, false, cb);
+            if (Build.VERSION.SDK_INT >= 23) s.gatt = device.connectGatt(context, false, cb, BluetoothDevice.TRANSPORT_LE);
+            else s.gatt = device.connectGatt(context, false, cb);
             if (s.gatt == null) failSession(s, "Could not create BLE GATT connection");
         } catch (SecurityException e) {
             failSession(s, "Bluetooth permission required");
@@ -634,19 +672,52 @@ public final class ObdManager {
         }
     }
 
+    private void appendBleRx(Session s, byte[] data) {
+        if (!isCurrent(s) || data == null || data.length == 0) return;
+        synchronized (s.bleRxLock) {
+            s.bleRx.append(new String(data, StandardCharsets.US_ASCII));
+            s.bleRxLock.notifyAll();
+        }
+    }
+
     /** Select only known UART layouts and keep write/notify inside the same service. */
     private boolean selectBleUart(Session s, BluetoothGatt g) {
-        if (selectBlePair(s, g.getService(FFF0), FFF1, FFF2)) return true;
-        if (selectSingleBleCharacteristic(s, g.getService(FFE0), FFE1)) return true;
+        // Vgate iCar Pro BLE 4.0 / VLink profile: 18F0 service, 2AF0 notify, 2AF1 write.
+        if (selectBlePair(s, g.getService(VGATE_SERVICE_18F0), VGATE_WRITE_2AF1, VGATE_NOTIFY_2AF0)) {
+            debugCore("BLE profile selected: Vgate 18F0/2AF0/2AF1");
+            return true;
+        }
+        // Some Vgate firmware exposes a single vendor characteristic with write + notify/indicate.
+        if (selectSingleBleCharacteristic(s, g.getService(VGATE_VENDOR_SERVICE), VGATE_VENDOR_CHAR)) {
+            debugCore("BLE profile selected: Vgate vendor single characteristic");
+            return true;
+        }
+        if (selectBlePair(s, g.getService(FFF0), FFF1, FFF2)) { debugCore("BLE profile selected: FFF0"); return true; }
+        if (selectSingleBleCharacteristic(s, g.getService(FFE0), FFE1)) { debugCore("BLE profile selected: FFE0/FFE1"); return true; }
         BluetoothGattService nus = g.getService(NUS_SERVICE);
         if (nus != null) {
             BluetoothGattCharacteristic w = nus.getCharacteristic(NUS_WRITE);
             BluetoothGattCharacteristic n = nus.getCharacteristic(NUS_NOTIFY);
             if (isWritable(w) && isNotifiableWithCccd(n)) {
-                s.bleWrite = w; s.bleNotify = n; return true;
+                s.bleWrite = w; s.bleNotify = n; debugCore("BLE profile selected: Nordic UART"); return true;
             }
         }
         return false;
+    }
+
+    private void logGattLayout(BluetoothGatt g) {
+        if (g == null) return;
+        try {
+            for (BluetoothGattService service : g.getServices()) {
+                debugCore("GATT service " + service.getUuid());
+                for (BluetoothGattCharacteristic c : service.getCharacteristics()) {
+                    boolean hasCccd = c.getDescriptor(CCCD_UUID) != null;
+                    debugCore("  char " + c.getUuid() + " props=0x" + Integer.toHexString(c.getProperties()) + " cccd=" + hasCccd);
+                }
+            }
+        } catch (Exception e) {
+            debugCore("GATT layout read failed: " + e.getClass().getSimpleName());
+        }
     }
 
     private boolean selectBlePair(Session s, BluetoothGattService service, UUID aId, UUID bId) {
@@ -1153,6 +1224,7 @@ public final class ObdManager {
     }
 
     private void debug(String line) { debugLog.add(line); }
+    private void debugCore(String line) { debugLog.addAlways(line); }
 
     private static final class DebugLog {
         final int maxLines;
@@ -1161,6 +1233,9 @@ public final class ObdManager {
         DebugLog(int maxLines) { this.maxLines = maxLines; }
         synchronized void add(String s) {
             if (!enabled) return;
+            addAlways(s);
+        }
+        synchronized void addAlways(String s) {
             lines.add(System.currentTimeMillis() + " " + s);
             while (lines.size() > maxLines) lines.remove(0);
         }
@@ -1278,7 +1353,7 @@ public final class ObdManager {
 
     private void postState(Session s, State next, String detail, Transport transport, String name) {
         if (s != null && !belongsToCurrent(s)) return;
-        debug("STATE " + state + " -> " + next + " [" + transport + "] " + (detail == null ? "" : detail));
+        debugCore("STATE " + state + " -> " + next + " [" + transport + "] " + (detail == null ? "" : detail));
         state = next;
         activeTransport = transport;
         final String emittedName = name == null ? "" : name;
