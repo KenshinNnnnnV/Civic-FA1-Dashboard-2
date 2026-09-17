@@ -1,4 +1,3 @@
-v0.8.4 FIX - Tachometer rework
 # Changelog
 
 ## v0.8.4 — performance + dynamic tachometer

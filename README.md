@@ -1,4 +1,3 @@
-v0.8.4 FIX - Tachometer rework
 > Current package: **v0.8.4** — performance + smooth telemetry + dynamic tachometer.
 
 # Civic FA1 Dashboard v0.8.4
