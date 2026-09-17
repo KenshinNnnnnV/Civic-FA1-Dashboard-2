@@ -172,25 +172,12 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onStop() {
+        // Normal Android background behavior: keep the Activity/task alive so Home
+        // or the app switcher minimizes the dashboard instead of closing it.
+        // The OBD transport is still suspended while the UI is not visible and
+        // onHostStart() will refresh/reconnect when the user returns.
         if (dashboardView != null) dashboardView.onHostStop();
-
-        // Manual-launch mode for FYT/UIS8581A head units:
-        // when the dashboard is no longer visible, remove its task instead of
-        // leaving it as the last foreground app that the head unit may restore
-        // automatically after sleep/ACC wake.
-        if (!isChangingConfigurations() && !isFinishing()) {
-            finishAndRemoveTask();
-        }
         super.onStop();
-    }
-
-    @Override public void onUserLeaveHint() {
-        super.onUserLeaveHint();
-        // Home / app switch should never leave the dashboard pinned above
-        // another application. The user can reopen it manually from the launcher.
-        if (!isFinishing()) {
-            finishAndRemoveTask();
-        }
     }
 
     @Override protected void onDestroy() {

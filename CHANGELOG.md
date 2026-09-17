@@ -1,3 +1,13 @@
+# Changelog
+
+## v0.8.3
+- Restored normal Android minimize/resume behavior.
+- Home/app switching no longer calls `finishAndRemoveTask()`.
+- Dashboard task is visible in Recent Apps again.
+- No boot receiver, overlay permission, or background foreground-stealing behavior was added.
+- OBD transport still suspends while the UI is backgrounded and reconnects/refreshed on return.
+- Approved CONNECT / SPORT / DIAGNOSTICS visual design is unchanged.
+
 # v0.8.2 — manual launch / task behavior
 
 - Dashboard remains full-screen only while the user has it open.

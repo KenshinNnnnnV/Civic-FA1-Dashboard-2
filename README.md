@@ -1,4 +1,4 @@
-> Current package: **v0.8.2** — approved design + manual-launch task behavior.
+> Current package: **v0.8.3** — approved design + manual-launch task behavior.
 
 # Civic FA1 Dashboard v0.8.1
 
@@ -29,3 +29,6 @@ v0.8.1 preserves the v0.7.1 OBD transport/protocol work. The UIS8581A Bluetooth 
 Expected toolchain: Java 17, compileSdk/targetSdk 34, build-tools 34.0.0, Gradle 8.9.
 
 GitHub Actions runs tests and `:app:assembleDebug`, then uploads `Civic-FA1-Dashboard-v0.8.1-APK`.
+
+## App lifecycle (v0.8.3)
+Pressing Home or switching to another app minimizes the dashboard normally. The task remains available in Recent Apps and can be resumed without intentionally closing it. The app does not register a BOOT_COMPLETED receiver and does not request overlay permission.
