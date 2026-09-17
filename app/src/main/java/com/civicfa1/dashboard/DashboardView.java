@@ -1183,29 +1183,36 @@ public final class DashboardView extends View implements ObdManager.Listener {
 
     private void drawTachometer(Canvas c) {
         final float cx = 640, cy = 255, radius = 205;
+        // v0.8.4 FIX: live RPM arc only. The background must stay neutral.
         fill.setColor(Color.argb(244, 2, 10, 13)); c.drawCircle(cx, cy, radius, fill);
         strokeCircle(c, cx, cy, radius, Color.rgb(170, 184, 190), 1.8f);
-        strokeCircle(c, cx, cy, radius - 9, Color.argb(130, 37, 181, 111), 1.2f);
 
         float rpm = freshRaw(telemetry.rpm);
-        float value = Float.isNaN(rpm) ? 0f : rpm;
+        boolean ecuLive = !Float.isNaN(rpm);
+        float value = ecuLive ? Math.max(0f, Math.min(8000f, rpm)) : 0f;
         float start = 145f, sweep = 250f;
-        arc(c, cx, cy, radius - 14, start, sweep, Color.rgb(28, 42, 47), 14f);
-        float progress = Math.max(0f, Math.min(1f, value / 8000f));
-        float greenSweep = Math.min(progress, 0.65f) * sweep;
-        if (greenSweep > 0) arc(c, cx, cy, radius - 14, start, greenSweep, GREEN, 14f);
-        if (progress > 0.65f) arc(c, cx, cy, radius - 14, start + .65f * sweep, Math.min(progress - .65f, .16f) * sweep, YELLOW, 14f);
-        if (progress > 0.81f) arc(c, cx, cy, radius - 14, start + .81f * sweep, (progress - .81f) * sweep, RED, 14f);
+        arc(c, cx, cy, radius - 14, start, sweep, Color.rgb(22, 32, 36), 14f);
+
+        if (ecuLive) {
+            float green = Math.min(value, 2500f) / 8000f * sweep;
+            float yellowStart = 2500f / 8000f * sweep;
+            float yellow = Math.max(0f, Math.min(value, 4500f) - 2500f) / 8000f * sweep;
+            float redStart = 4500f / 8000f * sweep;
+            float red = Math.max(0f, value - 4500f) / 8000f * sweep;
+            if (green > 0) arc(c, cx, cy, radius - 14, start, green, GREEN, 14f);
+            if (yellow > 0) arc(c, cx, cy, radius - 14, start + yellowStart, yellow, YELLOW, 14f);
+            if (red > 0) arc(c, cx, cy, radius - 14, start + redStart, red, RED, 14f);
+        }
 
         for (int i = 0; i <= 40; i++) {
             float a = start + sweep * i / 40f;
             float len = i % 5 == 0 ? 17 : 8;
-            int color = i >= 33 ? RED : i >= 27 ? YELLOW : WHITE;
+            int color = WHITE;
             radialLine(c, cx, cy, radius - 24, radius - 24 - len, a, color, i % 5 == 0 ? 2.4f : 1f);
         }
         for (int i = 0; i <= 8; i++) {
             float a = start + sweep * i / 8f;
-            polarLabel(c, Integer.toString(i), cx, cy, radius - 58, a, 21, i >= 7 ? RED : WHITE);
+            polarLabel(c, Integer.toString(i), cx, cy, radius - 58, a, 21, WHITE);
         }
 
         label(c, "i-VTEC", cx, cy - 36, 16, MUTED, Paint.Align.CENTER, true, false);
@@ -1214,7 +1221,6 @@ public final class DashboardView extends View implements ObdManager.Listener {
         glowLabel(c, rpmText, cx, cy + 49, 66, WHITE, Paint.Align.CENTER, true, 2.2f);
         label(c, "RPM", cx, cy + 80, 21, MUTED, Paint.Align.CENTER, true, false);
 
-        // Integrated speed pedestal from the approved reference.
         path.reset();
         path.moveTo(cx - 154, cy + 136);
         path.lineTo(cx - 108, cy + 98);
@@ -1223,14 +1229,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
         path.lineTo(cx + 123, cy + 181);
         path.lineTo(cx - 123, cy + 181);
         path.close();
-        fill.setColor(Color.argb(245, 3, 13, 17)); c.drawPath(path, fill);
-        stroke.setColor(Color.rgb(82, 102, 111)); stroke.setStrokeWidth(1.2f); c.drawPath(path, stroke);
-        line(c, cx - 103, cy + 105, cx + 103, cy + 105, RED, 2f);
-        glowLabel(c, valueText(telemetry.speed, 0x0D, 0), cx, cy + 158, 50, WHITE, Paint.Align.CENTER, true, 2.5f);
-        label(c, "km/h", cx + 78, cy + 158, 18, WHITE, Paint.Align.LEFT, true, false);
-    }
-
-    private void drawSportMetric(Canvas c, RectF r, SensorKey key, boolean large) {
+ drawSportMetric(Canvas c, RectF r, SensorKey key, boolean large) {
         SensorReading reading = sensorReading(key);
         panel(c, r, GREEN, false);
         drawIcon(c, key.icon, r.left + (large ? 48 : 42), r.top + (large ? 43 : 39), GREEN, large ? .78f : .65f);
