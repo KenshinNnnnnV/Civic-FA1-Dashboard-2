@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.8.4 — performance + dynamic tachometer
+- Coalesces rapid telemetry callbacks and caps OBD-to-UI snapshot publication to reduce full-screen redraw pressure.
+- Common integer telemetry formatting avoids unnecessary `String.format` allocations, and the full-canvas bitmap destination rectangle is reused.
+- Sport visual updates run at about 30 FPS while retaining real ECU values as the source of truth.
+- RPM/throttle polling cadence is moderately prioritized without parallel ELM commands.
+- Recurring Mode 03 DTC polling is reduced after the initial read so long diagnostic responses interfere less with fast live telemetry.
+- Tachometer no longer uses an always-lit green/yellow/red arc or a separate RPM marker.
+- Dynamic tach arc: green 0–2500 RPM, yellow 2500–4500 RPM, red above 4500 RPM; inactive range stays dark.
+- Center RPM number remains the latest real ECU sample; interpolation is visual-only for the arc.
+- SPORT active-tab glow is constrained to the common tab top edge so it no longer appears taller than CONNECT/DIAGNOSTICS.
+- Bottom navigation touch zone is consistent and kept below CONNECT content.
+- Clock ticker is restarted correctly after returning to the app.
+
+
 ## v0.8.3
 - Restored normal Android minimize/resume behavior.
 - Home/app switching no longer calls `finishAndRemoveTask()`.

@@ -1,13 +1,12 @@
-CIVIC FA1 DASHBOARD v0.8.1 -> Dashboard-2
+Civic FA1 Dashboard v0.8.4 — manual GitHub Desktop upload
 
-1. In GitHub Desktop select `KenshinNnnnnV/Civic-FA1-Dashboard-2`.
-2. Repository -> Show in Explorer.
-3. Extract this ZIP and copy the CONTENTS of the v0.8.1 folder into the repository root with replacement.
-4. Commit message:
-   Civic FA1 Dashboard v0.8.1 locked disconnected design
-5. Push origin.
-6. Wait for GitHub Actions to finish.
-7. Green build -> download `Civic-FA1-Dashboard-v0.8.1-APK`.
-8. Install and first test the three screens with OBD unplugged.
+1. Extract Civic-FA1-Dashboard-2-v0.8.4.zip.
+2. Open your local KenshinNnnnnV/Civic-FA1-Dashboard-2 repository folder.
+3. Copy EVERYTHING from the extracted Civic-FA1-Dashboard-v0.8.4 folder into the repository root with replacement.
+4. GitHub Desktop should show the changed v0.8.4 source/docs.
+5. Suggested commit: Civic FA1 Dashboard v0.8.4 performance and dynamic tachometer
+6. Push origin.
+7. Open Actions -> Build Android APK.
+8. Wait for green tests/build and download Civic-FA1-Dashboard-v0.8.4-APK.
 
-Important: v0.8.1 locks the approved design. Do not mix it with older v0.7/v0.8 artwork files.
+Do not delete or mix files from older v0.7/v0.8 packages after copying this complete package.

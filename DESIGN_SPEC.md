@@ -47,3 +47,13 @@ The three files in `design-reference/approved-v0.8.1/` are the visual source of 
 5. Do not add sample/random telemetry.
 6. Do not overlay a new number on a visible old number.
 7. OBD connection work must not be allowed to alter the visual design.
+
+## v0.8.4 approved runtime exceptions
+These are intentional behavior changes and are not permission to redesign the rest of SPORT:
+- Tachometer static color band is neutralized at runtime.
+- The live tach arc itself is the RPM indicator; no separate needle/marker.
+- Cumulative thresholds: green 0–2500 RPM, yellow 2500–4500 RPM, red above 4500 RPM.
+- Inactive RPM range stays dark.
+- Only the arc is visually smoothed; numeric RPM remains the newest real ECU sample.
+- SPORT active-tab highlight must stay within the same physical tab height as its neighboring tabs.
+- CONNECT and DIAGNOSTICS composition is unchanged.

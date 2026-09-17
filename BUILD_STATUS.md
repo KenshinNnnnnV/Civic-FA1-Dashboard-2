@@ -1,18 +1,19 @@
-# Build status — v0.8.1
+# Build status — v0.8.4
 
-Prepared source package for `KenshinNnnnnV/Civic-FA1-Dashboard-2`.
+Prepared full source package for `KenshinNnnnnV/Civic-FA1-Dashboard-2`.
 
 ## Verified in this environment
-- All three locked runtime reference images are exactly 1280×720 PNG.
-- Pure-Java `ObdProtocol.java` and `SensorFreshness.java` compile with JDK 17.
-- Full Java source was passed through `javac`; Android SDK symbols are unavailable here, but no Java syntax-style errors were reported before Android API resolution failures.
-- Runtime source contains no random/simulator telemetry generator.
-- Release ZIP integrity and SHA-256 are checked after packaging.
+- v0.8.4 was applied on top of the exact v0.8.3 project snapshot matching the current GitHub `main` assets/source hashes checked during preparation.
+- All three locked runtime artwork files remain 1280×720 and are unchanged.
+- Pure-Java `ObdProtocol.java` and `SensorFreshness.java` compile with Java 17 language level.
+- Modified Java files have balanced delimiters and pass source-level sanity checks; no simulator/random telemetry was added.
+- RPM arc smoothing is visual-only; the numeric RPM value remains the latest ECU sample.
+- Release ZIP SHA-256 and source checksums are generated after packaging.
 
-## Still authoritative
-This container has no Android SDK / `android.jar`. The real Android build must be confirmed by GitHub Actions:
-1. unit tests,
+## Android build confirmation
+This environment does not contain the Android SDK/Gradle toolchain used by the repository workflow. The authoritative build is GitHub Actions after upload:
+1. `:app:testDebugUnitTest`,
 2. `:app:assembleDebug`,
-3. artifact `Civic-FA1-Dashboard-v0.8.1-APK`.
+3. artifact `Civic-FA1-Dashboard-v0.8.4-APK`.
 
-Do not call the APK verified until Actions is green.
+Do not call the APK verified until that Actions run is green.

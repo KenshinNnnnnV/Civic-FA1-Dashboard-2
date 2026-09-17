@@ -832,10 +832,10 @@ public final class ObdManager {
     }
 
     private static final PollDef[] POLLS = new PollDef[]{
-            new PollDef(0x0C, 180), // RPM
+            new PollDef(0x0C, 150), // RPM — highest Sport priority
             new PollDef(0x0D, 220), // speed
-            new PollDef(0x11, 260), // throttle
-            new PollDef(0x04, 300), // load
+            new PollDef(0x11, 200), // throttle
+            new PollDef(0x04, 260), // load
             new PollDef(0x10, 650), // MAF
             new PollDef(0x0B, 700), // MAP
             new PollDef(0x0E, 750), // timing
@@ -854,6 +854,7 @@ public final class ObdManager {
         long readinessDue = now + 1200;
         long dtcDue = now + 2500;
         long adapterVoltageDue = now + 2500;
+        long telemetryPublishDue = now;
 
         while (isCurrent(s) && !s.cancelled) {
             now = System.currentTimeMillis();
@@ -868,8 +869,13 @@ public final class ObdManager {
             if (due != null) {
                 pollPid(s, due.pid);
                 long mult = prefs.getBoolean("low_power_mode", false) ? 2L : 1L;
-                s.nextDue.put(due.pid, System.currentTimeMillis() + due.intervalMs * mult);
-                postTelemetry(s);
+                long afterPoll = System.currentTimeMillis();
+                s.nextDue.put(due.pid, afterPoll + due.intervalMs * mult);
+                // Cap main-thread telemetry delivery at 20 Hz. UI interpolates only the visual tach arc.
+                if (afterPoll >= telemetryPublishDue) {
+                    postTelemetry(s);
+                    telemetryPublishDue = afterPoll + 50L;
+                }
                 continue;
             }
             if (now >= readinessDue && s.telemetry.supportedPids.contains(0x01)) {
@@ -879,16 +885,17 @@ public final class ObdManager {
             }
             if (now >= dtcDue) {
                 pollDtcs(s);
-                dtcDue = System.currentTimeMillis() + (prefs.getBoolean("low_power_mode", false) ? 60000L : 30000L);
+                dtcDue = System.currentTimeMillis() + (prefs.getBoolean("low_power_mode", false) ? 120000L : 60000L);
                 continue;
             }
             if (now >= adapterVoltageDue) {
                 pollAdapterVoltage(s);
                 adapterVoltageDue = System.currentTimeMillis() + (prefs.getBoolean("low_power_mode", false) ? 10000L : 5000L);
-                postTelemetry(s);
-                continue;
             }
-            postTelemetry(s); // also expires stale fields even if no PID was due
+            if (now >= telemetryPublishDue) {
+                postTelemetry(s); // expires stale fields without flooding the main thread
+                telemetryPublishDue = now + 50L;
+            }
             long sleep = earliest == Long.MAX_VALUE ? 50L : Math.max(15L, Math.min(60L, earliest - now));
             sleep(sleep);
         }

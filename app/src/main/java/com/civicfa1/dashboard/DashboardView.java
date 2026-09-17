@@ -74,7 +74,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
         String display() {
             if (state == SensorFreshness.State.UNSUPPORTED) return "N/A";
             if (state != SensorFreshness.State.VALID || Float.isNaN(value)) return "--";
-            return key.decimals == 0 ? String.format(Locale.US, "%.0f", value) : String.format(Locale.US, "%.1f", value);
+            return key.decimals == 0 ? Integer.toString(Math.round(value)) : String.format(Locale.US, "%.1f", value);
         }
     }
 
@@ -108,6 +108,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
     private final Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.SUBPIXEL_TEXT_FLAG);
     private final Path path = new Path();
     private final RectF tmp = new RectF();
+    private final RectF canvasBounds = new RectF(0, 0, DW, DH);
     private final Typeface regular = Typeface.create("sans-serif-condensed", Typeface.NORMAL);
     private final Typeface bold = Typeface.create("sans-serif-condensed", Typeface.BOLD);
     private final Typeface italicBold = Typeface.create("sans-serif-condensed", Typeface.BOLD_ITALIC);
@@ -156,12 +157,58 @@ public final class DashboardView extends View implements ObdManager.Listener {
     private float viewOffsetY;
     private boolean firstHostStart = true;
 
+    // v0.8.4 performance: coalesce frequent ELM telemetry callbacks into UI frames.
+    private static final long UI_FRAME_MS = 33L; // ~30 FPS on UIS8581A.
+    private static final float TACH_MAX_RPM = 8000f;
+    private static final float TACH_GREEN_END_RPM = 2500f;
+    private static final float TACH_YELLOW_END_RPM = 4500f;
+    private ObdManager.Telemetry pendingTelemetry;
+    private boolean telemetryFrameScheduled;
+    private float displayedRpm = Float.NaN;
+    private float targetRpm = Float.NaN;
+
     private final Runnable clockTick = new Runnable() {
         @Override public void run() {
             invalidate();
             handler.postDelayed(this, 1000L);
         }
     };
+
+    private final Runnable telemetryFrame = new Runnable() {
+        @Override public void run() {
+            telemetryFrameScheduled = false;
+            if (pendingTelemetry != null) {
+                telemetry = pendingTelemetry;
+                pendingTelemetry = null;
+                targetRpm = telemetry.rpm;
+                if (Float.isNaN(displayedRpm) && !Float.isNaN(targetRpm)) displayedRpm = targetRpm;
+            }
+
+            boolean animating = false;
+            if (mode == Mode.SPORT && obdState == ObdManager.State.ECU_CONNECTED && !Float.isNaN(targetRpm)) {
+                if (Float.isNaN(displayedRpm)) displayedRpm = targetRpm;
+                float delta = targetRpm - displayedRpm;
+                if (Math.abs(delta) > 2f) {
+                    // Visual damping only. The center number remains the latest real ECU value.
+                    displayedRpm += delta * 0.34f;
+                    animating = true;
+                } else {
+                    displayedRpm = targetRpm;
+                }
+            } else {
+                displayedRpm = targetRpm;
+            }
+
+            invalidate();
+            if (pendingTelemetry != null || animating) scheduleTelemetryFrame();
+        }
+    };
+
+    private void scheduleTelemetryFrame() {
+        if (telemetryFrameScheduled) return;
+        telemetryFrameScheduled = true;
+        handler.postDelayed(telemetryFrame, UI_FRAME_MS);
+    }
 
     // Geometry measured directly from the three approved 1280x720 reference images.
     // The reference bitmap itself is the immutable visual shell; these RectF values are interaction
@@ -248,6 +295,8 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     public void onHostStart() {
+        handler.removeCallbacks(clockTick);
+        handler.post(clockTick);
         obd.refreshDevices();
         if (autoReconnect && activity.hasObdBluetoothPermissions() && obdState == ObdManager.State.DISCONNECTED) {
             handler.postDelayed(obd::connectAuto, firstHostStart ? 900L : 1400L);
@@ -257,11 +306,16 @@ public final class DashboardView extends View implements ObdManager.Listener {
 
     public void onHostStop() {
         handler.removeCallbacks(clockTick);
+        handler.removeCallbacks(telemetryFrame);
+        telemetryFrameScheduled = false;
+        pendingTelemetry = null;
         obd.suspend();
     }
 
     public void destroy() {
         handler.removeCallbacksAndMessages(null);
+        pendingTelemetry = null;
+        telemetryFrameScheduled = false;
         obd.shutdown();
         recycle(connectArtwork);
         recycle(sportArtwork);
@@ -319,7 +373,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
         Bitmap b = mode == Mode.CONNECT ? connectArtwork : mode == Mode.SPORT ? sportArtwork : diagnosticsArtwork;
         if (b != null && !b.isRecycled()) {
             fill.setAlpha(255);
-            c.drawBitmap(b, null, new RectF(0, 0, DW, DH), fill);
+            c.drawBitmap(b, null, canvasBounds, fill);
         }
     }
 
@@ -431,11 +485,14 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void drawReferenceSportOverlay(Canvas c) {
-        // In the no-OBD default state the locked reference is already the exact desired screen.
-        // Do not repaint it with approximated text; only custom widget selections require overlays.
+        // v0.8.4: the tach arc itself shows RPM. No separate needle/marker and no always-on colors.
+        drawDynamicRpmArc(c);
+        normalizeSportNavigation(c);
+
+        // Preserve approved disconnected card/value typography while keeping the tach dark.
         if (obdState == ObdManager.State.DISCONNECTED && sportUsesDefaultSlots()) return;
 
-        // Central RPM value.
+        // Center RPM remains the latest truthful ECU sample; smoothing affects only the arc.
         refPatch(c, 523, 252, 758, 323, refTachColor());
         String rpm = valueText(telemetry.rpm, 0x0C, 0);
         glowLabel(c, rpm, 640, 313, 66, WHITE, Paint.Align.CENTER, true, 1.8f);
@@ -451,13 +508,6 @@ public final class DashboardView extends View implements ObdManager.Listener {
         glowLabel(c, valueText(telemetry.speed, 0x0D, 0), 643, 447, 70, WHITE, Paint.Align.CENTER, true, 1.8f);
         label(c, "km/h", 710, 442, 23, MUTED, Paint.Align.LEFT, false, false);
 
-        // The reference has a static colored RPM arc. Add only a small bright position marker so
-        // the gauge reacts to the real RPM without changing the approved visual language.
-        float rpmRaw = Float.isNaN(telemetry.rpm) ? 0f : clamp(telemetry.rpm, 0f, 8000f);
-        float angle = 145f + 250f * (rpmRaw / 8000f);
-        int markerColor = rpmRaw >= 6500f ? RED : rpmRaw >= 5200f ? YELLOW : GREEN;
-        radialLine(c, 640, 254, 188, 202, angle, markerColor, 4f);
-
         SensorKey[] defaults = {SensorKey.COOLANT, SensorKey.MODULE_VOLTAGE, SensorKey.THROTTLE, SensorKey.LOAD, SensorKey.INTAKE};
         RectF[] slots = {sportLeftBig, sportRightBig, sportBottomLeft, sportBottomMid, sportBottomRight};
         for (int i = 0; i < slots.length; i++) {
@@ -467,6 +517,42 @@ public final class DashboardView extends View implements ObdManager.Listener {
                 drawReferenceSportCustomCard(c, slots[i], sportSlots[i], i < 2);
             }
         }
+    }
+
+    private void drawDynamicRpmArc(Canvas c) {
+        // background_sport.png carries a neutral/dark tach scale. Runtime paints only the live part.
+        final float cx = 640f, cy = 255f, radius = 202f;
+        final float startAngle = 145f, totalSweep = 250f;
+
+        float rpm = obdState == ObdManager.State.ECU_CONNECTED && !Float.isNaN(displayedRpm)
+                ? clamp(displayedRpm, 0f, TACH_MAX_RPM) : 0f;
+        drawRpmArcSegment(c, cx, cy, radius, startAngle, totalSweep, 0f,
+                Math.min(rpm, TACH_GREEN_END_RPM), GREEN);
+        drawRpmArcSegment(c, cx, cy, radius, startAngle, totalSweep, TACH_GREEN_END_RPM,
+                Math.min(rpm, TACH_YELLOW_END_RPM), YELLOW);
+        drawRpmArcSegment(c, cx, cy, radius, startAngle, totalSweep, TACH_YELLOW_END_RPM,
+                rpm, RED);
+    }
+
+    private void drawRpmArcSegment(Canvas c, float cx, float cy, float radius, float startAngle,
+                                   float totalSweep, float fromRpm, float toRpm, int color) {
+        float from = clamp(fromRpm, 0f, TACH_MAX_RPM);
+        float to = clamp(toRpm, 0f, TACH_MAX_RPM);
+        if (to <= from) return;
+        float a = startAngle + totalSweep * (from / TACH_MAX_RPM);
+        float sweep = totalSweep * ((to - from) / TACH_MAX_RPM);
+        int glowColor = Color.argb(72, Color.red(color), Color.green(color), Color.blue(color));
+        arc(c, cx, cy, radius, a, sweep, glowColor, 15f);
+        arc(c, cx, cy, radius, a, sweep, color, 7.5f);
+    }
+
+    private void normalizeSportNavigation(Canvas c) {
+        // Keep all three SPORT-screen tabs at the same physical height. The baked active SPORT glow
+        // bleeds upward above the common top edge; suppress only that excess glow, not the tab body.
+        fill.setColor(Color.rgb(2, 9, 14));
+        c.drawRect(406, 594, 874, 603, fill);
+        // Redraw a restrained active top edge at the same y-position used by the neighboring tabs.
+        line(c, 422, 604, 858, 604, Color.argb(190, 255, 55, 76), 1.5f);
     }
 
     private void drawReferenceSportDefaultValue(Canvas c, RectF r, SensorKey key, int slot) {
@@ -1490,7 +1576,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
         if (obdState != ObdManager.State.ECU_CONNECTED) return "--";
         if (telemetry.capabilitiesKnown && !telemetry.supports(pid)) return "N/A";
         if (Float.isNaN(value)) return "--";
-        return decimals == 0 ? String.format(Locale.US, "%.0f", value) : String.format(Locale.US, "%.1f", value);
+        return decimals == 0 ? Integer.toString(Math.round(value)) : String.format(Locale.US, "%.1f", value);
     }
 
     private boolean hasAnyFreshTelemetry() {
@@ -1527,7 +1613,8 @@ public final class DashboardView extends View implements ObdManager.Listener {
             return true;
         }
 
-        float navTop = mode == Mode.SPORT ? 603f : mode == Mode.CONNECT ? 654f : 642f;
+        // One safe touch zone for all modes; it does not overlap CONNECT cards.
+        final float navTop = 654f;
         if (y >= navTop && y <= 716f) {
             int idx = Math.max(0, Math.min(2, (int) (x / (DW / 3f))));
             mode = idx == 0 ? Mode.CONNECT : idx == 1 ? Mode.SPORT : Mode.DIAGNOSTICS;
@@ -1724,6 +1811,10 @@ public final class DashboardView extends View implements ObdManager.Listener {
         } else if (state != ObdManager.State.ECU_CONNECTED && previous == ObdManager.State.ECU_CONNECTED) {
             connectedAtMs = 0;
         }
+        if (state != ObdManager.State.ECU_CONNECTED) {
+            targetRpm = Float.NaN;
+            displayedRpm = Float.NaN;
+        }
         invalidate();
     }
 
@@ -1740,8 +1831,9 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     @Override public void onTelemetry(ObdManager.Telemetry telemetry) {
-        this.telemetry = telemetry == null ? new ObdManager.Telemetry() : telemetry;
-        invalidate();
+        // Keep only the newest snapshot. ELM packet timing no longer drives full-screen redraw timing.
+        pendingTelemetry = telemetry == null ? new ObdManager.Telemetry() : telemetry;
+        scheduleTelemetryFrame();
     }
 
     @Override public void onReadiness(ObdManager.Readiness readiness) {
