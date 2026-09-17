@@ -1,16 +1,13 @@
-CIVIC FA1 DASHBOARD v0.7.1 -> Dashboard-2
+CIVIC FA1 DASHBOARD v0.8.1 -> Dashboard-2
 
-1. In GitHub Desktop open repository: KenshinNnnnnV/Civic-FA1-Dashboard-2
+1. In GitHub Desktop select `KenshinNnnnnV/Civic-FA1-Dashboard-2`.
 2. Repository -> Show in Explorer.
-3. Extract this ZIP.
-4. Copy the CONTENTS of the extracted folder into the repository root with replacement.
-   Do not create a nested Civic-FA1-Dashboard-v0.7.1 folder inside the repo.
-5. In GitHub Desktop review changes.
-6. Commit message suggestion:
-   Civic FA1 Dashboard v0.7.1 reference match and Vgate BLE fix
-7. Push origin.
-8. Open GitHub Actions.
-9. Expected artifact after a successful run:
-   Civic-FA1-Dashboard-v0.7.1-APK
+3. Extract this ZIP and copy the CONTENTS of the v0.8.1 folder into the repository root with replacement.
+4. Commit message:
+   Civic FA1 Dashboard v0.8.1 locked disconnected design
+5. Push origin.
+6. Wait for GitHub Actions to finish.
+7. Green build -> download `Civic-FA1-Dashboard-v0.8.1-APK`.
+8. Install and first test the three screens with OBD unplugged.
 
-After installation, first compare the three screens against design-reference/*_reference_1280.png, then test BLE/BT with TESTING.md.
+Important: v0.8.1 locks the approved design. Do not mix it with older v0.7/v0.8 artwork files.

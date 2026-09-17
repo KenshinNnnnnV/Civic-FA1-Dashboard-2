@@ -1,17 +1,18 @@
-# Build status — v0.7.1
+# Build status — v0.8.1
 
-## Verified in this workspace
-- Project structure intact.
-- `ObdProtocol.java` compiles with JDK 17.
-- `SensorFreshness.java` compiles with JDK 17.
-- Dashboard/OBD source brace and parenthesis balance checked after the v0.7.1 patch.
-- Runtime Java contains no `Random` telemetry path.
-- Runtime backgrounds remain decorative-only; reference screenshots are stored only under `design-reference/`.
-- Version bumped to 0.7.1 / code 18.
-- GitHub Actions artifact name updated to `Civic-FA1-Dashboard-v0.7.1-APK`.
+Prepared source package for `KenshinNnnnnV/Civic-FA1-Dashboard-2`.
 
-## Environment limitation
-This workspace does not contain Android SDK / android.jar, so `:app:assembleDebug` and `apksigner verify` cannot be executed locally here. GitHub Actions remains the authoritative Android compile/test step.
+## Verified in this environment
+- All three locked runtime reference images are exactly 1280×720 PNG.
+- Pure-Java `ObdProtocol.java` and `SensorFreshness.java` compile with JDK 17.
+- Full Java source was passed through `javac`; Android SDK symbols are unavailable here, but no Java syntax-style errors were reported before Android API resolution failures.
+- Runtime source contains no random/simulator telemetry generator.
+- Release ZIP integrity and SHA-256 are checked after packaging.
 
-## Real-car status
-Not yet validated on the vehicle. v0.7.1 specifically adds the Vgate 18F0/2AF0/2AF1 BLE profile and scan-error-2 recovery so the next head-unit test can either connect or produce a useful GATT trace in View Log.
+## Still authoritative
+This container has no Android SDK / `android.jar`. The real Android build must be confirmed by GitHub Actions:
+1. unit tests,
+2. `:app:assembleDebug`,
+3. artifact `Civic-FA1-Dashboard-v0.8.1-APK`.
+
+Do not call the APK verified until Actions is green.
