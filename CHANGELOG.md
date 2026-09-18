@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.8.4 — performance + dynamic tachometer
+## v0.9.3 — performance + dynamic tachometer
 - Coalesces rapid telemetry callbacks and caps OBD-to-UI snapshot publication to reduce full-screen redraw pressure.
 - Common integer telemetry formatting avoids unnecessary `String.format` allocations, and the full-canvas bitmap destination rectangle is reused.
 - Sport visual updates run at about 30 FPS while retaining real ECU values as the source of truth.

@@ -48,7 +48,7 @@ The three files in `design-reference/approved-v0.8.1/` are the visual source of 
 6. Do not overlay a new number on a visible old number.
 7. OBD connection work must not be allowed to alter the visual design.
 
-## v0.8.4 approved runtime exceptions
+## v0.9.3 approved runtime exceptions
 These are intentional behavior changes and are not permission to redesign the rest of SPORT:
 - Tachometer static color band is neutralized at runtime.
 - The live tach arc itself is the RPM indicator; no separate needle/marker.

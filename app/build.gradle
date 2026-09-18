@@ -10,8 +10,8 @@ android {
         applicationId "com.civicfa1.dashboard"
         minSdk 23
         targetSdk 34
-        versionCode 23
-        versionName "0.8.4"
+        versionCode 24
+        versionName "0.9.3"
     }
 
     buildTypes {

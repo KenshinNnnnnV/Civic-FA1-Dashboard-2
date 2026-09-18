@@ -1,9 +1,9 @@
-# v0.8.4 testing checklist
+# v0.9.3 testing checklist
 
 ## Build
 - GitHub Actions unit tests green.
 - `:app:assembleDebug` green.
-- Artifact name is `Civic-FA1-Dashboard-v0.8.4-APK`.
+- Artifact name is `Civic-FA1-Dashboard-v0.9.3-APK`.
 
 ## First visual test — OBD physically disconnected
 ### CONNECT
