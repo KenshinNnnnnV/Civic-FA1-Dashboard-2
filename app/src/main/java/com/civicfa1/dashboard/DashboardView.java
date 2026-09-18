@@ -159,17 +159,13 @@ public final class DashboardView extends View implements ObdManager.Listener {
 
     // v0.8.4 performance: coalesce frequent ELM telemetry callbacks into UI frames.
     private static final long UI_FRAME_MS = 33L; // ~30 FPS on UIS8581A.
-    private static final float TACH_MAX_RPM = 8000f; // v0.9.0 dynamic sport tachometer
+    private static final float TACH_MAX_RPM = 8000f;
     private static final float TACH_GREEN_END_RPM = 2500f;
     private static final float TACH_YELLOW_END_RPM = 4500f;
     private ObdManager.Telemetry pendingTelemetry;
     private boolean telemetryFrameScheduled;
     private float displayedRpm = Float.NaN;
     private float targetRpm = Float.NaN;
-
-    // v0.9.1: reusable tachometer paints to reduce allocations during animation.
-    private final Paint tachMarkerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-
 
     private final Runnable clockTick = new Runnable() {
         @Override public void run() {
@@ -524,44 +520,18 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void drawDynamicRpmArc(Canvas c) {
-        // v0.9.0 dynamic tachometer:
-        // Only the active RPM zone is rendered. Static background remains cached.
+        // background_sport.png carries a neutral/dark tach scale. Runtime paints only the live part.
         final float cx = 640f, cy = 255f, radius = 202f;
         final float startAngle = 145f, totalSweep = 250f;
 
         float rpm = obdState == ObdManager.State.ECU_CONNECTED && !Float.isNaN(displayedRpm)
                 ? clamp(displayedRpm, 0f, TACH_MAX_RPM) : 0f;
-
-        // Active RPM arc: green -> yellow -> red zones.
-        if (rpm > 0f) {
-            drawRpmArcSegment(c, cx, cy, radius, startAngle, totalSweep,
-                    0f, Math.min(rpm, TACH_GREEN_END_RPM), GREEN);
-        }
-        if (rpm > TACH_GREEN_END_RPM) {
-            drawRpmArcSegment(c, cx, cy, radius, startAngle, totalSweep,
-                    TACH_GREEN_END_RPM, Math.min(rpm, TACH_YELLOW_END_RPM), YELLOW);
-        }
-        if (rpm > TACH_YELLOW_END_RPM) {
-            drawRpmArcSegment(c, cx, cy, radius, startAngle, totalSweep,
-                    TACH_YELLOW_END_RPM, rpm, RED);
-        }
-
-        // Small peak marker gives feedback during throttle changes.
-        if (rpm > 100f) {
-            float markerAngle = startAngle + totalSweep * (rpm / TACH_MAX_RPM);
-            // v0.9.1: reuse paint object instead of allocating every frame.
-            Paint marker = tachMarkerPaint;
-            marker.setColor(Color.WHITE);
-            marker.setStrokeWidth(3f);
-            marker.setStrokeCap(Paint.Cap.ROUND);
-
-            double rad = Math.toRadians(markerAngle);
-            float x1 = cx + (float)Math.cos(rad) * (radius - 14f);
-            float y1 = cy + (float)Math.sin(rad) * (radius - 14f);
-            float x2 = cx + (float)Math.cos(rad) * (radius + 4f);
-            float y2 = cy + (float)Math.sin(rad) * (radius + 4f);
-            c.drawLine(x1, y1, x2, y2, marker);
-        }
+        drawRpmArcSegment(c, cx, cy, radius, startAngle, totalSweep, 0f,
+                Math.min(rpm, TACH_GREEN_END_RPM), GREEN);
+        drawRpmArcSegment(c, cx, cy, radius, startAngle, totalSweep, TACH_GREEN_END_RPM,
+                Math.min(rpm, TACH_YELLOW_END_RPM), YELLOW);
+        drawRpmArcSegment(c, cx, cy, radius, startAngle, totalSweep, TACH_YELLOW_END_RPM,
+                rpm, RED);
     }
 
     private void drawRpmArcSegment(Canvas c, float cx, float cy, float radius, float startAngle,
@@ -1213,38 +1183,52 @@ public final class DashboardView extends View implements ObdManager.Listener {
 
     private void drawTachometer(Canvas c) {
         final float cx = 640, cy = 255, radius = 205;
-        fill.setColor(Color.argb(244, 2, 10, 13)); c.drawCircle(cx, cy, radius, fill);
+
+        // Dynamic Sport tachometer renderer v0.9.2
+        fill.setColor(Color.argb(244, 2, 10, 13));
+        c.drawCircle(cx, cy, radius, fill);
         strokeCircle(c, cx, cy, radius, Color.rgb(170, 184, 190), 1.8f);
-        strokeCircle(c, cx, cy, radius - 9, Color.argb(130, 37, 181, 111), 1.2f);
 
         float rpm = freshRaw(telemetry.rpm);
-        float value = Float.isNaN(rpm) ? 0f : rpm;
-        float start = 145f, sweep = 250f;
-        arc(c, cx, cy, radius - 14, start, sweep, Color.rgb(28, 42, 47), 14f);
-        float progress = Math.max(0f, Math.min(1f, value / 8000f));
-        float greenSweep = Math.min(progress, 0.65f) * sweep;
-        if (greenSweep > 0) arc(c, cx, cy, radius - 14, start, greenSweep, GREEN, 14f);
-        if (progress > 0.65f) arc(c, cx, cy, radius - 14, start + .65f * sweep, Math.min(progress - .65f, .16f) * sweep, YELLOW, 14f);
-        if (progress > 0.81f) arc(c, cx, cy, radius - 14, start + .81f * sweep, (progress - .81f) * sweep, RED, 14f);
+        float value = Float.isNaN(rpm) ? 0f : Math.max(0f, Math.min(8000f, rpm));
 
+        float start = 140f;
+        float sweep = 260f;
+        float ring = radius - 18f;
+
+        // inactive ring
+        arc(c, cx, cy, ring, start, sweep, Color.rgb(22, 35, 41), 18f);
+
+        float progress = value / 8000f;
+        if (progress > 0) {
+            float greenPart = Math.min(value, 4000f) / 8000f * sweep;
+            float yellowPart = Math.max(0, Math.min(value - 4000f, 1500f)) / 8000f * sweep;
+            float redPart = Math.max(0, value - 5500f) / 8000f * sweep;
+
+            if (greenPart > 0) arc(c, cx, cy, ring, start, greenPart, GREEN, 18f);
+            if (yellowPart > 0) arc(c, cx, cy, ring, start + 4000f / 8000f * sweep, yellowPart, YELLOW, 18f);
+            if (redPart > 0) arc(c, cx, cy, ring, start + 5500f / 8000f * sweep, redPart, RED, 18f);
+        }
+
+        // OEM style scale
         for (int i = 0; i <= 40; i++) {
             float a = start + sweep * i / 40f;
-            float len = i % 5 == 0 ? 17 : 8;
-            int color = i >= 33 ? RED : i >= 27 ? YELLOW : WHITE;
-            radialLine(c, cx, cy, radius - 24, radius - 24 - len, a, color, i % 5 == 0 ? 2.4f : 1f);
+            float len = i % 5 == 0 ? 18 : 9;
+            int color = i >= 35 ? RED : i >= 27 ? YELLOW : WHITE;
+            radialLine(c, cx, cy, radius - 30, radius - 30 - len, a, color, i % 5 == 0 ? 2f : 1f);
         }
+
         for (int i = 0; i <= 8; i++) {
             float a = start + sweep * i / 8f;
-            polarLabel(c, Integer.toString(i), cx, cy, radius - 58, a, 21, i >= 7 ? RED : WHITE);
+            polarLabel(c, Integer.toString(i), cx, cy, radius - 62, a, 20, i >= 6 ? RED : WHITE);
         }
 
         label(c, "i-VTEC", cx, cy - 36, 16, MUTED, Paint.Align.CENTER, true, false);
         label(c, "x1000 RPM", cx, cy - 16, 11, DIM, Paint.Align.CENTER, false, false);
-        String rpmText = valueText(telemetry.rpm, 0x0C, 0);
-        glowLabel(c, rpmText, cx, cy + 49, 66, WHITE, Paint.Align.CENTER, true, 2.2f);
+
+        glowLabel(c, valueText(telemetry.rpm, 0x0C, 0), cx, cy + 49, 64, WHITE, Paint.Align.CENTER, true, 2f);
         label(c, "RPM", cx, cy + 80, 21, MUTED, Paint.Align.CENTER, true, false);
 
-        // Integrated speed pedestal from the approved reference.
         path.reset();
         path.moveTo(cx - 154, cy + 136);
         path.lineTo(cx - 108, cy + 98);
@@ -1253,8 +1237,11 @@ public final class DashboardView extends View implements ObdManager.Listener {
         path.lineTo(cx + 123, cy + 181);
         path.lineTo(cx - 123, cy + 181);
         path.close();
-        fill.setColor(Color.argb(245, 3, 13, 17)); c.drawPath(path, fill);
-        stroke.setColor(Color.rgb(82, 102, 111)); stroke.setStrokeWidth(1.2f); c.drawPath(path, stroke);
+        fill.setColor(Color.argb(245, 3, 13, 17));
+        c.drawPath(path, fill);
+        stroke.setColor(Color.rgb(82, 102, 111));
+        stroke.setStrokeWidth(1.2f);
+        c.drawPath(path, stroke);
         line(c, cx - 103, cy + 105, cx + 103, cy + 105, RED, 2f);
         glowLabel(c, valueText(telemetry.speed, 0x0D, 0), cx, cy + 158, 50, WHITE, Paint.Align.CENTER, true, 2.5f);
         label(c, "km/h", cx + 78, cy + 158, 18, WHITE, Paint.Align.LEFT, true, false);
@@ -1465,7 +1452,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
 
     private void drawSensorPicker(Canvas c) {
         fill.setColor(Color.argb(190, 0, 0, 0)); c.drawRect(0, 0, DW, DH, fill);
-        RectF r = new RectF(190, 118, 1090, 594);
+        RectF r = new RectF(190, 105, 1090, 610);
         fill.setColor(Color.rgb(4, 18, 24)); c.drawRoundRect(r, 14, 14, fill);
         stroke.setColor(GREEN); stroke.setStrokeWidth(1.5f); c.drawRoundRect(r, 14, 14, stroke);
         label(c, "SELECT SENSOR", r.left + 34, r.top + 45, 24, WHITE, Paint.Align.LEFT, true, true);
@@ -1475,7 +1462,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
         SensorKey[] keys = SensorKey.values();
         float l = r.left + 30, top = r.top + 96, gapX = 12, gapY = 12;
         float w = (r.width() - 60 - gapX * 2) / 3f;
-        float h = 68;
+        float h = 58;
         for (int i = 0; i < keys.length; i++) {
             int col = i % 3, row = i / 3;
             float x = l + col * (w + gapX), y = top + row * (h + gapY);
@@ -1664,7 +1651,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void handleSensorPickerTouch(float x, float y) {
-        RectF r = new RectF(190, 118, 1090, 594);
+        RectF r = new RectF(190, 105, 1090, 610);
         if (!r.contains(x, y) || (x > r.right - 75 && y < r.top + 80)) { sensorPickerSlot = -1; invalidate(); return; }
         SensorKey[] keys = SensorKey.values();
         float l = r.left + 30, top = r.top + 96, gapX = 12, gapY = 12;
