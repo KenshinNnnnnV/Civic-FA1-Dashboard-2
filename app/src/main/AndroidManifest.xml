@@ -20,6 +20,8 @@
             android:name=".SplashActivity"
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -31,6 +33,7 @@
             android:name=".MainActivity"
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize"
+            android:excludeFromRecents="true"
             android:exported="false" />
     </application>
 </manifest>

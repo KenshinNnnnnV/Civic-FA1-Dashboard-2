@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.0.3 — final Sport RPM arc + configurable widgets
+- Tachometer has no needle; the dynamic multicolor arc is the sole graphical RPM indicator.
+- Green 0–4000, yellow 4000–5500, red 5500–8000 RPM, cumulatively filled to live RPM.
+- Sport widget tap-to-select remains persisted per slot. Unsupported ECU PIDs cannot be assigned once capabilities are known.
+- Preserves three independent dashboards and v1.0.1 manual-launch behavior.
+
+## v1.0.1 — manual launch only / no FYT task restore
+- Dashboard no longer remains in Recents after leaving the foreground.
+- Leaving the app removes its task with `finishAndRemoveTask()` (except during configuration changes).
+- Prevents FYT/UIS8581A launchers from restoring Dashboard as the last foreground task after ACC wake or reboot.
+- Splash and Main activities are excluded from Recents; Splash is `noHistory`.
+- No `BOOT_COMPLETED` receiver, background service, overlay, or startup permission was added.
+- OBD logic and all v1.0.0 UI design remain unchanged.
+
+## v1.0.0 — unified final shell
+- Unified angular header across CONNECT / SPORT / DIAGNOSTICS.
+- Removed header clock and Wi-Fi icon.
+- Added mode-specific header accents: blue / red / green.
+- Unified bottom navigation geometry; only active color changes.
+- Preserved v0.9.3 OBD and telemetry engine.
+- Preserved live SPORT RPM arc behavior.
+
 ## v0.9.3 — performance + dynamic tachometer
 - Coalesces rapid telemetry callbacks and caps OBD-to-UI snapshot publication to reduce full-screen redraw pressure.
 - Common integer telemetry formatting avoids unnecessary `String.format` allocations, and the full-canvas bitmap destination rectangle is reused.
