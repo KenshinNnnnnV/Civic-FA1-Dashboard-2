@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.0.3 — final Sport RPM arc + configurable widgets
+## v1.0.2 — final Sport RPM arc + configurable widgets
 - Tachometer has no needle; the dynamic multicolor arc is the sole graphical RPM indicator.
 - Green 0–4000, yellow 4000–5500, red 5500–8000 RPM, cumulatively filled to live RPM.
 - Sport widget tap-to-select remains persisted per slot. Unsupported ECU PIDs cannot be assigned once capabilities are known.

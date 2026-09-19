@@ -345,13 +345,13 @@ public final class DashboardView extends View implements ObdManager.Listener {
         // language with generic Canvas panels; only the values/statuses that must change at runtime
         // are painted on top of clean, locally matched patches.
         drawBackground(canvas);
-        drawReferenceHeaderOverlay(canvas);
+        // v1.0.4: the approved 1280x720 artwork owns ALL static geometry, header and footer.
+        // Runtime code only replaces live values/status and the active Sport RPM arc.
         switch (mode) {
-            case CONNECT: drawV103ConnectOverlay(canvas); break;
-            case SPORT: drawV103SportOverlay(canvas); break;
-            case DIAGNOSTICS: drawV103DiagnosticsOverlay(canvas); break;
+            case CONNECT: drawV104ConnectOverlay(canvas); break;
+            case SPORT: drawV104SportOverlay(canvas); break;
+            case DIAGNOSTICS: drawV104DiagnosticsOverlay(canvas); break;
         }
-        drawBottomNavigation(canvas);
 
         if (sensorPickerSlot >= 0) drawSensorPicker(canvas);
         canvas.restore();
@@ -504,6 +504,160 @@ public final class DashboardView extends View implements ObdManager.Listener {
         label(c, truncate(stateSubtitle(), 31), 980, 48, 9.5f, MUTED, Paint.Align.LEFT, false, false);
     }
 
+
+    // -----------------------------------------------------------------------------------------
+    // v1.0.4 MINIMAL RUNTIME OVERLAYS
+    // Static artwork remains untouched. Only live text/status/bar interiors are replaced.
+    // -----------------------------------------------------------------------------------------
+
+    private void drawV104HeaderStatus(Canvas c) {
+        int bg = Color.rgb(1, 8, 12);
+        // Cover only the OBD status text area; keep the approved header shape/icon/time intact.
+        refPatch(c, 972, 20, 1142, 76, bg);
+        int sc = stateColor();
+        label(c, "OBD:", 980, 43, 13, WHITE, Paint.Align.LEFT, true, false);
+        label(c, stateTitle(), 1022, 43, 13, sc, Paint.Align.LEFT, true, false);
+        label(c, truncate(stateSubtitle(), 27), 980, 65, 9, MUTED, Paint.Align.LEFT, false, false);
+    }
+
+    private void drawV104ConnectOverlay(Canvas c) {
+        drawV104HeaderStatus(c);
+        final int bg = Color.rgb(2, 15, 20);
+        final boolean linked = obdState == ObdManager.State.ECU_CONNECTED;
+
+        // Connection status: replace only text, not the card/halo/icon.
+        refPatch(c, 126, 145, 287, 219, bg);
+        glowLabel(c, linked ? "CONNECTED" : stateTitle(), 132, 171, 24,
+                linked ? GREEN : stateColor(), Paint.Align.LEFT, true, 1.0f);
+        label(c, linked ? "ECU LINK ACTIVE" : truncate(obdDetail, 21), 132, 194, 12,
+                linked ? GREEN : MUTED, Paint.Align.LEFT, true, false);
+        label(c, linked ? "ALL SYSTEMS NORMAL" : "WAITING FOR CONNECTION", 132, 213, 9.5f,
+                MUTED, Paint.Align.LEFT, false, false);
+
+        // Summary values only.
+        String[] vals = {linked ? "ACTIVE" : "--",
+                telemetry.capabilitiesKnown ? Integer.toString(telemetry.supportedPids.size()) : "--",
+                obdState == ObdManager.State.ERROR ? "1+" : "0",
+                linked ? sessionTime() : "--:--:--"};
+        float[] xs = {390, 530, 666, 810};
+        for (int i=0;i<4;i++) {
+            refPatch(c, xs[i]-58, 155, xs[i]+58, 196, bg);
+            glowLabel(c, vals[i], xs[i], 180, i==3?20:22, WHITE, Paint.Align.CENTER, true, .7f);
+        }
+
+        // Adapter identity values only.
+        refPatch(c, 126, 305, 252, 445, bg);
+        label(c, truncate(nonEmpty(adapterName, "Not selected"), 18), 132, 333, 15, WHITE, Paint.Align.LEFT, true, false);
+        label(c, truncate(nonEmpty(connectedAddress, "--"), 19), 132, 383, 11, WHITE, Paint.Align.LEFT, false, false);
+        label(c, linked ? transportLabel(activeTransport) : transportLabel(selectedTransport), 132, 435, 12, WHITE, Paint.Align.LEFT, true, false);
+
+        // Four live-data numbers. Preserve icons, labels and card borders from the artwork.
+        drawV104Value(c, 742, 348, valueText(telemetry.rpm, 0x0C, 0), "rpm", CONNECT_BLUE, bg, 30);
+        drawV104Value(c, 882, 348, valueText(telemetry.coolant, 0x05, 0), "°C", CONNECT_BLUE, bg, 30);
+        drawV104Value(c, 742, 449, valueText(telemetry.speed, 0x0D, 0), "km/h", CONNECT_BLUE, bg, 30);
+        drawV104Value(c, 882, 449, sensorReading(SensorKey.MODULE_VOLTAGE).display(), "V", CONNECT_BLUE, bg, 30);
+
+        // Log body: clear only text rows inside the existing panel.
+        refPatch(c, 1010, 300, 1248, 500, bg);
+        String[] lines = {
+                "State: " + stateTitle(),
+                "Adapter: " + truncate(nonEmpty(adapterName, "--"), 18),
+                "Transport: " + (linked ? transportLabel(activeTransport) : transportLabel(selectedTransport)),
+                "Protocol: " + (linked ? truncate(nonEmpty(telemetry.protocol, "N/A"), 18) : "--"),
+                "PIDs: " + (telemetry.capabilitiesKnown ? telemetry.supportedPids.size() : 0),
+                "Detail: " + truncate(obdDetail, 20)
+        };
+        for (int i=0;i<lines.length;i++) {
+            circle(c, 1020, 319+i*28, 3.2f, i==0?stateColor():CONNECT_BLUE);
+            label(c, lines[i], 1032, 323+i*28, 10, i==0?WHITE:MUTED, Paint.Align.LEFT, false, false);
+        }
+    }
+
+    private void drawV104Value(Canvas c, float x, float y, String value, String unit,
+                               int accent, int bg, float size) {
+        refPatch(c, x-55, y-30, x+55, y+30, bg);
+        glowLabel(c, value, x, y, size, WHITE, Paint.Align.CENTER, true, .7f);
+        label(c, unit, x, y+22, 10, accent, Paint.Align.CENTER, false, false);
+    }
+
+    private void drawV104SportOverlay(Canvas c) {
+        drawV104HeaderStatus(c);
+        drawDynamicRpmArc(c);
+        final int tachBg = Color.rgb(1, 7, 10);
+        // Center RPM number only. The bitmap owns i-VTEC, x1000 RPM, numerals and scale.
+        refPatch(c, 548, 250, 732, 346, tachBg);
+        glowLabel(c, valueText(telemetry.rpm, 0x0C, 0), 640, 316, 58, WHITE, Paint.Align.CENTER, true, 1.0f);
+        label(c, "RPM", 640, 344, 21, Color.rgb(184,225,246), Paint.Align.CENTER, true, false);
+
+        // Speed number only.
+        refPatch(c, 586, 383, 754, 439, Color.rgb(4,12,17));
+        glowLabel(c, valueText(telemetry.speed, 0x0D, 0), 640, 425, 42, WHITE, Paint.Align.CENTER, true, .9f);
+        label(c, "km/h", 702, 425, 15, Color.rgb(190,225,242), Paint.Align.LEFT, false, false);
+
+        RectF[] slots = {sportLeftBig, sportRightBig, sportBottomLeft, sportBottomMid, sportBottomRight};
+        for (int i=0;i<slots.length;i++) drawV104SportValueOnly(c, slots[i], sportSlots[i], i);
+    }
+
+    private void drawV104SportValueOnly(Canvas c, RectF r, SensorKey key, int slot) {
+        SensorReading reading = sensorReading(key);
+        int bg = Color.rgb(2, 13, 18);
+        boolean big = slot < 2;
+        float valueY = r.top + (big ? 94 : 82);
+        // Clear only original number/unit area.
+        refPatch(c, r.left + 135, r.top + 54, r.right - 28, r.top + (big ? 116 : 105), bg);
+        glowLabel(c, reading.display(), r.left + 176, valueY, big ? 40 : 33, WHITE, Paint.Align.CENTER, true, .8f);
+        if (reading.state != SensorFreshness.State.UNSUPPORTED)
+            label(c, key.unit, r.right - 50, valueY, big ? 16 : 14, Color.rgb(190,225,242), Paint.Align.RIGHT, false, false);
+
+        // Dynamic fill only inside existing bar rail.
+        float l=r.left+32, rr=r.right-32, y=r.bottom-43;
+        refPatch(c,l,y,rr,y+8,Color.rgb(18,33,39));
+        if (reading.state == SensorFreshness.State.VALID && !Float.isNaN(reading.value)) {
+            float f=clamp((reading.value-key.min)/Math.max(.001f,key.max-key.min),0f,1f);
+            int col = slot==3 ? YELLOW : (slot==2 ? GREEN : Color.rgb(0,200,255));
+            fill.setColor(col); c.drawRoundRect(l,y,l+(rr-l)*f,y+8,4,4,fill);
+        }
+    }
+
+    private void drawV104DiagnosticsOverlay(Canvas c) {
+        drawV104HeaderStatus(c);
+        final int bg = Color.rgb(2, 15, 18);
+        final boolean linked = obdState == ObdManager.State.ECU_CONNECTED;
+        float[][] pos = {
+                {392,186},{592,186},{790,186},{392,296},{592,296},{790,296},
+                {392,406},{592,406},{790,406},{392,518},{592,518},{790,518}
+        };
+        String[] values = {
+                valueText(telemetry.rpm,0x0C,0), valueText(telemetry.speed,0x0D,0), valueText(telemetry.coolant,0x05,0),
+                valueText(telemetry.intake,0x0F,0), valueText(telemetry.throttle,0x11,1), valueText(telemetry.map,0x0B,0),
+                valueText(telemetry.maf,0x10,1), valueText(telemetry.shortFuelTrim,0x06,1), valueText(telemetry.longFuelTrim,0x07,1),
+                "--", "--", sensorReading(SensorKey.MODULE_VOLTAGE).display()
+        };
+        String[] units={"rpm","km/h","°C","°C","%","kPa","g/s","%","%","V","V","V"};
+        for(int i=0;i<pos.length;i++) drawV104DiagValue(c,pos[i][0],pos[i][1],values[i],units[i],bg);
+
+        // Status values only; keep the approved panel labels/icons.
+        refPatch(c, 1000, 170, 1236, 314, bg);
+        glowLabel(c, linked?"CONNECTED":stateTitle(), 1070, 198, 17, linked?GREEN:stateColor(), Paint.Align.CENTER, true, .7f);
+        label(c, linked?truncate(nonEmpty(telemetry.protocol,"N/A"),24):"--", 1070, 247, 15, linked?GREEN:MUTED, Paint.Align.CENTER, true, false);
+        String dtcText = dtc.status==ObdManager.DtcStatus.HAS_CODES?Integer.toString(dtc.codes.size()):dtc.status==ObdManager.DtcStatus.NO_CODES?"0":"--";
+        label(c, dtcText, 1050, 299, 17, dtc.status==ObdManager.DtcStatus.HAS_CODES?RED:(linked?GREEN:MUTED), Paint.Align.CENTER, true, false);
+        label(c, readiness.available?readinessSummaryShort():"--", 1185, 299, 12, readiness.available?GREEN:MUTED, Paint.Align.CENTER, true, false);
+
+        // Replace only OK tokens around the vehicle scan; never cover the vehicle illustration.
+        String sys=linked?"OK":"--"; int col=linked?GREEN:MUTED;
+        refPatch(c, 925, 392, 970, 432, Color.argb(235,1,13,15)); label(c,sys,947,424,11,col,Paint.Align.CENTER,true,false);
+        refPatch(c, 1193, 382, 1234, 421, Color.argb(235,1,13,15)); label(c,sys,1213,415,11,col,Paint.Align.CENTER,true,false);
+        refPatch(c, 925, 535, 970, 570, Color.argb(235,1,13,15)); label(c,sys,947,565,11,col,Paint.Align.CENTER,true,false);
+        refPatch(c, 1080, 541, 1123, 575, Color.argb(235,1,13,15)); label(c,sys,1102,570,11,col,Paint.Align.CENTER,true,false);
+        refPatch(c, 1204, 535, 1242, 570, Color.argb(235,1,13,15)); label(c,sys,1223,565,11,col,Paint.Align.CENTER,true,false);
+    }
+
+    private void drawV104DiagValue(Canvas c,float x,float y,String value,String unit,int bg){
+        refPatch(c,x-48,y-28,x+84,y+20,bg);
+        glowLabel(c,value,x,y,25,WHITE,Paint.Align.CENTER,true,.65f);
+        label(c,unit,x+55,y,10,DIAG_GREEN,Paint.Align.LEFT,false,false);
+    }
 
     // -----------------------------------------------------------------------------------------
     // v1.0.3 RUNTIME OVERLAYS FOR THE NEW APPROVED DASHBOARDS
@@ -735,49 +889,18 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void drawDynamicRpmArc(Canvas c) {
-        // v1.0.2 REAL render path. Sport mode is a locked bitmap plus runtime overlays.
-        // RPM is represented only by the illuminated arc length. Never draw a needle here.
-        // First neutralize the old baked scale, then draw one clean elliptical runtime scale.
+        // v1.0.4: the bitmap already contains the inactive rail, ticks and 0..8 numerals.
+        // Draw ONLY the illuminated live segment. No cover arc, no duplicate ticks/numbers, no needle.
         final float cx = 640f, cy = 263f;
         final float startAngle = 145f, totalSweep = 250f;
-
-        // Cover the baked green/yellow/red wedges, ticks and numerals. A slightly wider
-        // cover arc extends past 0/8 so no colored tails from the bitmap can show through.
-        ellipseArc(c, cx, cy, 226f, 183f, 136f, 268f, Color.rgb(3, 9, 12), 100f, Paint.Cap.BUTT);
-
-        // Neutral inactive rail. The rail itself is always present; only the live portion lights up.
-        ellipseArc(c, cx, cy, 218f, 175f, startAngle, totalSweep, Color.rgb(37, 49, 55), 18f, Paint.Cap.BUTT);
-
         float rpm = obdState == ObdManager.State.ECU_CONNECTED && !Float.isNaN(displayedRpm)
                 ? clamp(displayedRpm, 0f, TACH_MAX_RPM) : 0f;
-
         drawEllipticalRpmSegment(c, cx, cy, 218f, 175f, startAngle, totalSweep,
                 0f, Math.min(rpm, TACH_GREEN_END_RPM), GREEN);
         drawEllipticalRpmSegment(c, cx, cy, 218f, 175f, startAngle, totalSweep,
                 TACH_GREEN_END_RPM, Math.min(rpm, TACH_YELLOW_END_RPM), YELLOW);
         drawEllipticalRpmSegment(c, cx, cy, 218f, 175f, startAngle, totalSweep,
                 TACH_YELLOW_END_RPM, rpm, RED);
-
-        // Forty minor marks + eight major intervals. Active marks inherit the current RPM zone;
-        // inactive marks stay neutral, so the complete 0..8 scale reacts to the engine.
-        for (int i = 0; i <= 40; i++) {
-            float a = startAngle + totalSweep * i / 40f;
-            float markRpm = TACH_MAX_RPM * i / 40f;
-            boolean major = i % 5 == 0;
-            int tickColor;
-            if (markRpm <= rpm && rpm > 0f) tickColor = tachZoneColor(markRpm);
-            else tickColor = major ? Color.rgb(220, 226, 229) : Color.rgb(126, 142, 149);
-            ellipseRadialLine(c, cx, cy,
-                    226f, 183f,
-                    major ? 202f : 212f, major ? 159f : 169f,
-                    a, tickColor, major ? 3.6f : 1.8f);
-        }
-
-        // The cover arc removes all baked numerals, so redraw one clean 0..8 set.
-        for (int i = 0; i <= 8; i++) {
-            float a = startAngle + totalSweep * i / 8f;
-            ellipsePolarLabel(c, Integer.toString(i), cx, cy, 180f, 148f, a, 24f, WHITE);
-        }
     }
 
     private void drawEllipticalRpmSegment(Canvas c, float cx, float cy, float rx, float ry,

@@ -1,4 +1,4 @@
-# Civic FA1 Dashboard v1.0.3
+# Civic FA1 Dashboard v1.0.2
 
 Android automotive dashboard for Honda Civic FA1 2011 / R18A 1.8L, targeted at a 1280×720 Android head unit (UIS8581A class hardware).
 
@@ -34,11 +34,11 @@ The tachometer arc is the RPM indicator. The unused portion remains dark and the
 1. Put the project in a GitHub repository root.
 2. Commit and push to `main`.
 3. Open **Actions -> Build Android APK**.
-4. Download artifact **Civic-FA1-Dashboard-v1.0.3-APK**.
+4. Download artifact **Civic-FA1-Dashboard-v1.0.2-APK**.
 
 Toolchain in workflow: Java 17, Android API 34, Build Tools 34.0.0, Gradle 8.9.
 
 
-## v1.0.3 Sport behavior
+## v1.0.2 Sport behavior
 - RPM is shown graphically by the dynamic green/yellow/red arc only; there is no tachometer needle.
 - Five Sport sensor widgets can be changed by tapping them; selections persist between launches.
