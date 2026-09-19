@@ -172,16 +172,11 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onStop() {
-        // FYT/UIS8581A head units may restore the last foreground task after
-        // ACC wake or a system reboot. This dashboard is manual-launch only:
-        // once it leaves the foreground, remove its task so the launcher has
-        // nothing to restore automatically on the next head-unit startup.
+        // v0.9.4: minimizing must NOT close the dashboard or tear down the OBD session.
+        // DashboardView only pauses visual frame callbacks while the Activity is hidden;
+        // the existing ELM327 session may stay alive for instant resume.
         if (dashboardView != null) dashboardView.onHostStop();
         super.onStop();
-
-        if (!isChangingConfigurations() && !isFinishing()) {
-            finishAndRemoveTask();
-        }
     }
 
     @Override protected void onDestroy() {
