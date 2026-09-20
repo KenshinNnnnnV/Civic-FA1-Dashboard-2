@@ -158,7 +158,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
     private boolean firstHostStart = true;
     private boolean hostVisible;
 
-    // v0.8.4 performance: coalesce frequent ELM telemetry callbacks into UI frames.
+    // Coalesce frequent ELM telemetry callbacks into UI frames.
     private static final long UI_FRAME_MS = 16L; // target ~60 FPS; only while visible/animating.
     private static final float TACH_MAX_RPM = 8000f;
     private static final float TACH_GREEN_END_RPM = 4000f;
@@ -370,7 +370,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
         canvas.translate(viewOffsetX, viewOffsetY);
         canvas.scale(s, s);
 
-        // v0.8.1: render the locked approved reference shell 1:1. We no longer reconstruct the visual
+        // Render the current runtime artwork as the locked visual shell. We no longer reconstruct the visual
         // language with generic Canvas panels; only the values/statuses that must change at runtime
         // are painted on top of clean, locally matched patches.
         drawBackground(canvas);
@@ -459,7 +459,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
 
 
     // -----------------------------------------------------------------------------------------
-    // v0.8.1 LOCKED-REFERENCE OVERLAYS
+    // CURRENT RUNTIME OVERLAYS
     // -----------------------------------------------------------------------------------------
 
     private void refPatch(Canvas c, float l, float t, float r, float b, int color) {
@@ -500,7 +500,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void drawReferenceSportOverlay(Canvas c) {
-        // v0.8.4: the tach arc itself shows RPM. No separate needle/marker and no always-on colors.
+        // The tach arc itself shows RPM. No separate needle/marker and no always-on colors.
         drawDynamicRpmArc(c);
 
         // Preserve approved disconnected card/value typography while keeping the tach dark.
@@ -1195,7 +1195,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
         float greenSweep = Math.min(progress, 0.65f) * sweep;
         if (greenSweep > 0) arc(c, cx, cy, radius - 14, start, greenSweep, GREEN, 14f);
         if (progress > 0.65f) arc(c, cx, cy, radius - 14, start + .65f * sweep, Math.min(progress - .65f, .16f) * sweep, YELLOW, 14f);
-        if (progress > 0.81f) arc(c, cx, cy, radius - 14, start + .81f * sweep, (progress - .81f) * sweep, RED, 14f);
+        if (progress > 0.81f) arc(c, cx, cy, radius - 14, start + .81f * sweep, (progress - .81f) * sweep, YELLOW, 14f);
 
         for (int i = 0; i <= 40; i++) {
             float a = start + sweep * i / 40f;
@@ -1629,7 +1629,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
             return true;
         }
 
-        // Match the real bottom-navigation geometry of each approved v0.9.4 background.
+        // Match the real bottom-navigation geometry of the current runtime backgrounds.
         // CONNECT has content lower on the screen, while SPORT/DIAGNOSTICS navigation begins earlier.
         final float navTop = mode == Mode.CONNECT ? 650f : mode == Mode.SPORT ? 598f : 635f;
         final float navBottom = 716f;

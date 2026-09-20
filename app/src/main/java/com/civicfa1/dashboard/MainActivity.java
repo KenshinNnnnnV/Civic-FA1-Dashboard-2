@@ -172,7 +172,7 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onStop() {
-        // v0.9.4: minimizing must NOT close the dashboard or tear down the OBD session.
+        // Minimizing must NOT close the dashboard or tear down the OBD session.
         // DashboardView only pauses visual frame callbacks while the Activity is hidden;
         // the existing ELM327 session may stay alive for instant resume.
         if (dashboardView != null) dashboardView.onHostStop();
