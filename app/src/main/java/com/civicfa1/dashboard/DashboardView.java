@@ -24,7 +24,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Civic FA1 Dashboard v0.9.3 locked-reference UI.
+ * Civic FA1 Dashboard v0.9.4 performance + approved-style UI.
  *
  * Three fixed 1280x720 modes: CONNECT / SPORT / DIAGNOSTICS.
  * The three approved 1280x720 disconnected-state references are the locked visual shell. Runtime code replaces
@@ -156,16 +156,17 @@ public final class DashboardView extends View implements ObdManager.Listener {
     private float viewOffsetX;
     private float viewOffsetY;
     private boolean firstHostStart = true;
+    private boolean hostVisible;
 
     // v0.8.4 performance: coalesce frequent ELM telemetry callbacks into UI frames.
-    private static final long UI_FRAME_MS = 33L; // ~30 FPS on UIS8581A.
+    private static final long UI_FRAME_MS = 16L; // target ~60 FPS; only while visible/animating.
     private static final float TACH_MAX_RPM = 8000f;
     private static final float TACH_GREEN_END_RPM = 4000f;
-    private static final float TACH_YELLOW_END_RPM = 5500f;
     private ObdManager.Telemetry pendingTelemetry;
     private boolean telemetryFrameScheduled;
     private float displayedRpm = Float.NaN;
     private float targetRpm = Float.NaN;
+    private String clockText = "--:--";
 
     private final Runnable telemetryFrame = new Runnable() {
         @Override public void run() {
@@ -183,7 +184,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
                 float delta = targetRpm - displayedRpm;
                 if (Math.abs(delta) > 2f) {
                     // Visual damping only. The center number remains the latest real ECU value.
-                    displayedRpm += delta * 0.34f;
+                    displayedRpm += delta * 0.22f;
                     animating = true;
                 } else {
                     displayedRpm = targetRpm;
@@ -192,13 +193,22 @@ public final class DashboardView extends View implements ObdManager.Listener {
                 displayedRpm = targetRpm;
             }
 
-            invalidate();
+            if (hostVisible) postInvalidateOnAnimation();
             if (pendingTelemetry != null || animating) scheduleTelemetryFrame();
         }
     };
 
+    private final Runnable clockTicker = new Runnable() {
+        @Override public void run() {
+            if (!hostVisible) return;
+            clockText = clockFormat.format(new Date());
+            postInvalidateOnAnimation();
+            handler.postDelayed(this, 30_000L);
+        }
+    };
+
     private void scheduleTelemetryFrame() {
-        if (telemetryFrameScheduled) return;
+        if (!hostVisible || telemetryFrameScheduled) return;
         telemetryFrameScheduled = true;
         handler.postDelayed(telemetryFrame, UI_FRAME_MS);
     }
@@ -218,6 +228,20 @@ public final class DashboardView extends View implements ObdManager.Listener {
     private final RectF sportBottomLeft = new RectF(30, 470, 429, 586);
     private final RectF sportBottomMid = new RectF(442, 470, 837, 586);
     private final RectF sportBottomRight = new RectF(850, 470, 1249, 586);
+    private final RectF[] sportSlotsRects = {sportLeftBig, sportRightBig, sportBottomLeft, sportBottomMid, sportBottomRight};
+    private final SensorKey[] sportDefaultKeys = {SensorKey.COOLANT, SensorKey.MODULE_VOLTAGE, SensorKey.THROTTLE, SensorKey.LOAD, SensorKey.INTAKE};
+    private final RectF[] connectionTypeBoxes = {
+            new RectF(858, 214, 979, 300),
+            new RectF(990, 214, 1111, 300),
+            new RectF(1122, 214, 1243, 300)
+    };
+    private final RectF[] diagnosticsTopCards = {
+            new RectF(28,226,218,321), new RectF(228,226,441,321), new RectF(452,226,640,321),
+            new RectF(650,226,851,321), new RectF(862,226,1060,321), new RectF(1072,226,1255,321)
+    };
+    private final SensorKey[] diagnosticsTopKeys = {
+            SensorKey.MODULE_VOLTAGE, SensorKey.COOLANT, SensorKey.INTAKE, SensorKey.THROTTLE, SensorKey.LOAD, SensorKey.FUEL
+    };
 
     public DashboardView(MainActivity activity) {
         super(activity);
@@ -285,7 +309,13 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     public void onHostStart() {
+        hostVisible = true;
+        obd.setSportPriority(mode == Mode.SPORT);
         obd.refreshDevices();
+        handler.removeCallbacks(clockTicker);
+        clockText = clockFormat.format(new Date());
+        handler.post(clockTicker);
+        if (pendingTelemetry != null) scheduleTelemetryFrame();
         if (autoReconnect && activity.hasObdBluetoothPermissions() && obdState == ObdManager.State.DISCONNECTED) {
             handler.postDelayed(obd::connectAuto, firstHostStart ? 900L : 1400L);
         }
@@ -293,10 +323,11 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     public void onHostStop() {
+        hostVisible = false;
         handler.removeCallbacks(telemetryFrame);
+        handler.removeCallbacks(clockTicker);
         telemetryFrameScheduled = false;
-        pendingTelemetry = null;
-        obd.suspend();
+        // Keep the task and active OBD link alive while minimized. Do not call obd.suspend().
     }
 
     public void destroy() {
@@ -365,7 +396,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private int modeAccent() {
-        return mode == Mode.SPORT ? RED : mode == Mode.DIAGNOSTICS ? CYAN : GREEN;
+        return mode == Mode.SPORT ? RED : mode == Mode.DIAGNOSTICS ? GREEN : CYAN;
     }
 
     private void drawHeader(Canvas c) {
@@ -390,7 +421,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
         label(c, "OBD: " + stateTitle(), 934, 24, 15, sc, Paint.Align.LEFT, true, false);
         label(c, stateSubtitle(), 934, 43, 9.5f, MUTED, Paint.Align.LEFT, false, false);
         line(c, 1110, 8, 1110, 51, Color.argb(80, 140, 155, 164), 1f);
-        label(c, clockFormat.format(new Date()), 1161, 31, 20, WHITE, Paint.Align.CENTER, true, false);
+        label(c, clockText, 1161, 31, 20, WHITE, Paint.Align.CENTER, true, false);
         drawIcon(c, Icon.WIFI, 1234, 24, WHITE, 0.70f);
     }
 
@@ -438,14 +469,14 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private int refPanelColor() {
-        if (mode == Mode.CONNECT) return Color.rgb(0, 16, 19);
-        if (mode == Mode.DIAGNOSTICS) return Color.rgb(2, 17, 18);
-        return Color.rgb(4, 13, 17);
+        if (mode == Mode.CONNECT) return Color.rgb(0, 13, 24);
+        if (mode == Mode.DIAGNOSTICS) return Color.rgb(0, 14, 11);
+        return Color.rgb(1, 9, 12);
     }
     private int refPanelColor2() {
-        if (mode == Mode.CONNECT) return Color.rgb(3, 17, 21);
-        if (mode == Mode.DIAGNOSTICS) return Color.rgb(1, 15, 17);
-        return Color.rgb(4, 15, 18);
+        if (mode == Mode.CONNECT) return Color.rgb(0, 13, 24);
+        if (mode == Mode.DIAGNOSTICS) return Color.rgb(0, 14, 11);
+        return Color.rgb(1, 9, 12);
     }
     private int refHeaderColor() {
         if (mode == Mode.CONNECT) return Color.rgb(0, 10, 15);
@@ -455,22 +486,22 @@ public final class DashboardView extends View implements ObdManager.Listener {
     private int refTachColor() { return Color.rgb(1, 5, 8); }
 
     private void drawReferenceHeaderOverlay(Canvas c) {
-        // v0.9.3: the approved bitmap still contains the old OBD/time/Wi-Fi cluster.
-        // Always erase that complete area, then draw only the live OBD state at the far right.
-        // This makes the change visible in every state and removes the 1 Hz clock redraw entirely.
-        refPatch(c, 895, 0, 1280, 59, refHeaderColor());
+        // Preserve the approved mode header. Replace only the live OBD status and clock.
+        final int bg = refHeaderColor();
+        refPatch(c, 925, 9, 1133, 55, bg);
+        refPatch(c, 1140, 8, 1207, 53, bg);
 
         int sc = stateColor();
-        circle(c, 1028, 28, 6.5f, sc);
-        label(c, "OBD:", 1050, 31, 17, WHITE, Paint.Align.LEFT, true, false);
-        label(c, stateTitle(), 1095, 31, 17, sc, Paint.Align.LEFT, true, false);
-        label(c, truncate(stateSubtitle(), 32), 1050, 49, 10, MUTED, Paint.Align.LEFT, false, false);
+        circle(c, 943, 23, 6.5f, sc);
+        label(c, "OBD:", 958, 28, 14, WHITE, Paint.Align.LEFT, true, false);
+        label(c, stateTitle(), 998, 28, 14, sc, Paint.Align.LEFT, true, false);
+        label(c, truncate(stateSubtitle(), 25), 958, 46, 9.5f, MUTED, Paint.Align.LEFT, false, false);
+        label(c, clockText, 1173, 33, 19, WHITE, Paint.Align.CENTER, true, false);
     }
 
     private void drawReferenceSportOverlay(Canvas c) {
         // v0.8.4: the tach arc itself shows RPM. No separate needle/marker and no always-on colors.
         drawDynamicRpmArc(c);
-        normalizeSportNavigation(c);
 
         // Preserve approved disconnected card/value typography while keeping the tach dark.
         if (obdState == ObdManager.State.DISCONNECTED && sportUsesDefaultSlots()) return;
@@ -480,72 +511,36 @@ public final class DashboardView extends View implements ObdManager.Listener {
         String rpm = valueText(telemetry.rpm, 0x0C, 0);
         glowLabel(c, rpm, 640, 313, 66, WHITE, Paint.Align.CENTER, true, 1.8f);
 
-        // Integrated speed pedestal.
-        fill.setColor(Color.rgb(5, 11, 14));
-        path.reset();
-        path.moveTo(506, 383); path.lineTo(774, 383); path.lineTo(862, 455);
-        path.lineTo(418, 455); path.close();
-        c.drawPath(path, fill);
-        line(c, 520, 384, 760, 384, RED, 2.0f);
-        line(c, 438, 455, 842, 455, Color.argb(150, 255, 45, 66), 1.5f);
+        // Keep the approved speed pedestal from the PNG. Clear only the baked value text,
+        // never the whole pedestal/card, then draw the live value.
+        refPatch(c, 570, 398, 735, 449, refTachColor());
         glowLabel(c, valueText(telemetry.speed, 0x0D, 0), 643, 447, 70, WHITE, Paint.Align.CENTER, true, 1.8f);
         label(c, "km/h", 710, 442, 23, MUTED, Paint.Align.LEFT, false, false);
 
-        SensorKey[] defaults = {SensorKey.COOLANT, SensorKey.MODULE_VOLTAGE, SensorKey.THROTTLE, SensorKey.LOAD, SensorKey.INTAKE};
-        RectF[] slots = {sportLeftBig, sportRightBig, sportBottomLeft, sportBottomMid, sportBottomRight};
-        for (int i = 0; i < slots.length; i++) {
-            if (sportSlots[i] == defaults[i]) {
-                drawReferenceSportDefaultValue(c, slots[i], sportSlots[i], i);
+        for (int i = 0; i < sportSlotsRects.length; i++) {
+            if (sportSlots[i] == sportDefaultKeys[i]) {
+                drawReferenceSportDefaultValue(c, sportSlotsRects[i], sportSlots[i], i);
             } else {
-                drawReferenceSportCustomCard(c, slots[i], sportSlots[i], i < 2);
+                drawReferenceSportCustomCard(c, sportSlotsRects[i], sportSlots[i], i < 2);
             }
         }
     }
 
     private void drawDynamicRpmArc(Canvas c) {
-        // v0.9.3 REAL render path. Sport mode is a locked bitmap plus runtime overlays,
-        // so the tachometer must be rebuilt here (not in the legacy drawTachometer method).
-        // First neutralize the old baked scale, then draw one clean elliptical runtime scale.
+        // The arc is the RPM indicator. No needle and no second set of 0..8 numerals.
         final float cx = 640f, cy = 263f;
         final float startAngle = 145f, totalSweep = 250f;
 
-        // Cover the baked green/yellow/red wedges, ticks and numerals. A slightly wider
-        // cover arc extends past 0/8 so no colored tails from the bitmap can show through.
-        ellipseArc(c, cx, cy, 226f, 183f, 136f, 268f, Color.rgb(3, 9, 12), 100f, Paint.Cap.BUTT);
-
-        // Neutral inactive rail. The rail itself is always present; only the live portion lights up.
-        ellipseArc(c, cx, cy, 218f, 175f, startAngle, totalSweep, Color.rgb(37, 49, 55), 18f, Paint.Cap.BUTT);
-
+        // background_sport.png contains the complete neutral tachometer. Runtime draws only
+        // the active RPM portion, so DISCONNECTED/engine-off has no illuminated arc at all.
         float rpm = obdState == ObdManager.State.ECU_CONNECTED && !Float.isNaN(displayedRpm)
                 ? clamp(displayedRpm, 0f, TACH_MAX_RPM) : 0f;
 
-        drawEllipticalRpmSegment(c, cx, cy, 218f, 175f, startAngle, totalSweep,
+        drawEllipticalRpmSegment(c, cx, cy, 216f, 174f, startAngle, totalSweep,
                 0f, Math.min(rpm, TACH_GREEN_END_RPM), GREEN);
-        drawEllipticalRpmSegment(c, cx, cy, 218f, 175f, startAngle, totalSweep,
-                TACH_GREEN_END_RPM, Math.min(rpm, TACH_YELLOW_END_RPM), YELLOW);
-        drawEllipticalRpmSegment(c, cx, cy, 218f, 175f, startAngle, totalSweep,
-                TACH_YELLOW_END_RPM, rpm, RED);
-
-        // Forty minor marks + eight major intervals. Active marks inherit the current RPM zone;
-        // inactive marks stay neutral, so the complete 0..8 scale reacts to the engine.
-        for (int i = 0; i <= 40; i++) {
-            float a = startAngle + totalSweep * i / 40f;
-            float markRpm = TACH_MAX_RPM * i / 40f;
-            boolean major = i % 5 == 0;
-            int tickColor;
-            if (markRpm <= rpm && rpm > 0f) tickColor = tachZoneColor(markRpm);
-            else tickColor = major ? Color.rgb(220, 226, 229) : Color.rgb(126, 142, 149);
-            ellipseRadialLine(c, cx, cy,
-                    226f, 183f,
-                    major ? 202f : 212f, major ? 159f : 169f,
-                    a, tickColor, major ? 3.6f : 1.8f);
-        }
-
-        // The cover arc removes all baked numerals, so redraw one clean 0..8 set.
-        for (int i = 0; i <= 8; i++) {
-            float a = startAngle + totalSweep * i / 8f;
-            ellipsePolarLabel(c, Integer.toString(i), cx, cy, 180f, 148f, a, 24f, WHITE);
-        }
+        // Approved Sport design: no red RPM arc. Above 4000 RPM the active arc stays yellow.
+        drawEllipticalRpmSegment(c, cx, cy, 216f, 174f, startAngle, totalSweep,
+                TACH_GREEN_END_RPM, rpm, YELLOW);
     }
 
     private void drawEllipticalRpmSegment(Canvas c, float cx, float cy, float rx, float ry,
@@ -556,15 +551,11 @@ public final class DashboardView extends View implements ObdManager.Listener {
         if (to <= from) return;
         float a = startAngle + totalSweep * (from / TACH_MAX_RPM);
         float sweep = totalSweep * ((to - from) / TACH_MAX_RPM);
-        int glowColor = Color.argb(58, Color.red(color), Color.green(color), Color.blue(color));
+        int glowColor = Color.argb(54, Color.red(color), Color.green(color), Color.blue(color));
+        int coreColor = Color.argb(190, Color.red(color), Color.green(color), Color.blue(color));
         ellipseArc(c, cx, cy, rx, ry, a, sweep, glowColor, 28f, Paint.Cap.BUTT);
-        ellipseArc(c, cx, cy, rx, ry, a, sweep, color, 18f, Paint.Cap.BUTT);
-    }
-
-    private int tachZoneColor(float rpm) {
-        if (rpm < TACH_GREEN_END_RPM) return GREEN;
-        if (rpm < TACH_YELLOW_END_RPM) return YELLOW;
-        return RED;
+        // Slight transparency keeps the baked white ticks legible under the active color.
+        ellipseArc(c, cx, cy, rx, ry, a, sweep, coreColor, 16f, Paint.Cap.BUTT);
     }
 
     private void ellipseArc(Canvas c, float cx, float cy, float rx, float ry,
@@ -578,15 +569,6 @@ public final class DashboardView extends View implements ObdManager.Listener {
         stroke.setStrokeCap(Paint.Cap.ROUND);
     }
 
-    private void ellipseRadialLine(Canvas c, float cx, float cy,
-                                   float outerRx, float outerRy, float innerRx, float innerRy,
-                                   float angle, int color, float width) {
-        double a = Math.toRadians(angle);
-        float cos = (float) Math.cos(a), sin = (float) Math.sin(a);
-        line(c, cx + cos * outerRx, cy + sin * outerRy,
-                cx + cos * innerRx, cy + sin * innerRy, color, width);
-    }
-
     private void ellipsePolarLabel(Canvas c, String value, float cx, float cy, float rx, float ry,
                                    float angle, float size, int color) {
         double a = Math.toRadians(angle);
@@ -595,22 +577,13 @@ public final class DashboardView extends View implements ObdManager.Listener {
         label(c, value, x, y, size, color, Paint.Align.CENTER, true, false);
     }
 
-    private void normalizeSportNavigation(Canvas c) {
-        // Keep all three SPORT-screen tabs at the same physical height. The baked active SPORT glow
-        // bleeds upward above the common top edge; suppress only that excess glow, not the tab body.
-        fill.setColor(Color.rgb(2, 9, 14));
-        c.drawRect(406, 594, 874, 603, fill);
-        // Redraw a restrained active top edge at the same y-position used by the neighboring tabs.
-        line(c, 422, 604, 858, 604, Color.argb(190, 255, 55, 76), 1.5f);
-    }
-
     private void drawReferenceSportDefaultValue(Canvas c, RectF r, SensorKey key, int slot) {
         SensorReading reading = sensorReading(key);
         boolean large = slot < 2;
         if (large) {
             // Erase only the example number/unit and example green bar fill.
-            if (slot == 0) refPatch(c, 122, 343, 294, 407, refPanelColor());
-            else refPatch(c, 995, 342, 1194, 408, refPanelColor());
+            if (slot == 0) refPatch(c, 122, 360, 292, 405, refPanelColor());
+            else refPatch(c, 1000, 360, 1192, 405, refPanelColor());
             float x = slot == 0 ? 133 : 1005;
             float valueBaseline = 400;
             glowLabel(c, reading.display(), x, valueBaseline, 49, WHITE, Paint.Align.LEFT, true, 1.3f);
@@ -619,27 +592,27 @@ public final class DashboardView extends View implements ObdManager.Listener {
             }
             float l = slot == 0 ? 49 : 918;
             float rr = slot == 0 ? 360 : 1228;
-            refPatch(c, l, 411, rr, 424, Color.rgb(38, 50, 62));
+            // Track is static artwork; runtime draws only the live fill.
             drawReferenceProgress(c, l, 411, rr, 424, reading);
         } else {
             float l = slot == 2 ? 143 : slot == 3 ? 560 : 967;
             float rr = slot == 2 ? 260 : slot == 3 ? 675 : 1090;
-            refPatch(c, l, 501, rr, 539, refPanelColor());
+            refPatch(c, l, 504, rr, 537, refPanelColor());
             glowLabel(c, reading.display(), l, 534, 34, WHITE, Paint.Align.LEFT, true, 1.2f);
             if (reading.state != SensorFreshness.State.UNSUPPORTED) {
                 label(c, key.unit, l + 62, 531, 17, MUTED, Paint.Align.LEFT, false, false);
             }
             float barL = slot == 2 ? 50 : slot == 3 ? 467 : 870;
             float barR = slot == 2 ? 402 : slot == 3 ? 809 : 1224;
-            refPatch(c, barL, 540, barR, 552, Color.rgb(38, 50, 62));
+            // Track is static artwork; runtime draws only the live fill.
             drawReferenceProgress(c, barL, 540, barR, 552, reading);
         }
     }
 
     private void drawReferenceSportCustomCard(Canvas c, RectF r, SensorKey key, boolean large) {
-        // Custom cards are intentionally rebuilt only inside the card content area. The original
-        // approved card border/background remains untouched.
-        refPatch(c, r.left + 12, r.top + 10, r.right - 12, r.bottom - 10, refPanelColor());
+        // Preserve the approved card body. Only dynamic icon/title/value zones are refreshed.
+        refPatch(c, r.left + 18, r.top + 12, r.right - 18, r.top + (large ? 58 : 50), refPanelColor());
+        refPatch(c, r.left + 82, r.top + (large ? 58 : 46), r.right - 20, r.top + (large ? 112 : 76), refPanelColor());
         SensorReading reading = sensorReading(key);
         drawIcon(c, key.icon, r.left + 44, r.top + (large ? 45 : 37), GREEN, large ? .75f : .62f);
         label(c, key.title, r.left + (large ? 105 : 90), r.top + 34, large ? 17 : 15, MUTED, Paint.Align.LEFT, false, false);
@@ -647,13 +620,11 @@ public final class DashboardView extends View implements ObdManager.Listener {
         if (large) {
             glowLabel(c, reading.display(), r.left + 106, r.top + 101, 49, WHITE, Paint.Align.LEFT, true, 1.3f);
             if (reading.state != SensorFreshness.State.UNSUPPORTED) label(c, key.unit, r.left + 220, r.top + 95, 21, MUTED, Paint.Align.LEFT, false, false);
-            refPatch(c, r.left + 20, r.bottom - 46, r.right - 20, r.bottom - 34, Color.rgb(38,50,62));
             drawReferenceProgress(c, r.left + 20, r.bottom - 46, r.right - 20, r.bottom - 34, reading);
             scaleLabels(c, r, key, r.bottom - 13);
         } else {
             glowLabel(c, reading.display(), r.left + 90, r.top + 65, 34, WHITE, Paint.Align.LEFT, true, 1.3f);
             if (reading.state != SensorFreshness.State.UNSUPPORTED) label(c, key.unit, r.left + 160, r.top + 62, 17, MUTED, Paint.Align.LEFT, false, false);
-            refPatch(c, r.left + 20, r.bottom - 45, r.right - 20, r.bottom - 33, Color.rgb(38,50,62));
             drawReferenceProgress(c, r.left + 20, r.bottom - 45, r.right - 20, r.bottom - 33, reading);
             scaleLabels(c, r, key, r.bottom - 12);
         }
@@ -695,34 +666,29 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void drawReferenceConnectionType(Canvas c) {
-        // Remove the baked BLE example state and redraw the three choices from the same geometry.
-        refPatch(c, 854, 211, 1247, 303, refPanelColor());
-        float gap = 10f;
-        RectF[] boxes = {
-                new RectF(858, 214, 979, 300),
-                new RectF(990, 214, 1111, 300),
-                new RectF(1122, 214, 1243, 300)
-        };
+        // The three button bodies/icons/labels are static artwork. Runtime only marks selection.
         ObdManager.Transport[] ts = {ObdManager.Transport.BLE, ObdManager.Transport.BLUETOOTH, ObdManager.Transport.WIFI};
-        String[] names = {"BLE 4.0", "BT 3.0", "Wi-Fi"};
-        Icon[] icons = {Icon.BLUETOOTH, Icon.BLUETOOTH, Icon.WIFI};
         for (int i=0;i<3;i++) {
             boolean active = selectedTransport == ts[i];
-            fill.setColor(active ? Color.rgb(4, 55, 38) : Color.rgb(5, 20, 25));
-            c.drawRoundRect(boxes[i], 6, 6, fill);
-            stroke.setColor(active ? GREEN : Color.rgb(57, 83, 96));
-            stroke.setStrokeWidth(active ? 1.7f : 1f);
-            c.drawRoundRect(boxes[i], 6, 6, stroke);
-            drawIcon(c, icons[i], boxes[i].centerX(), boxes[i].top + 24, active ? GREEN : Color.rgb(181, 204, 226), .55f);
-            label(c, names[i], boxes[i].centerX(), boxes[i].top + 57, 13, WHITE, Paint.Align.CENTER, false, false);
-            strokeCircle(c, boxes[i].centerX(), boxes[i].bottom - 15, 7, active ? GREEN : Color.rgb(154,181,198), 1.5f);
-            if (active) circle(c, boxes[i].centerX(), boxes[i].bottom - 15, 3.2f, GREEN);
+            if (active) {
+                stroke.setColor(GREEN);
+                stroke.setStrokeWidth(2.2f);
+                c.drawRoundRect(connectionTypeBoxes[i], 6, 6, stroke);
+            }
+            // Clear/redraw only the small radio indicator area.
+            refPatch(c, connectionTypeBoxes[i].centerX()-11, connectionTypeBoxes[i].bottom-25,
+                    connectionTypeBoxes[i].centerX()+11, connectionTypeBoxes[i].bottom-4, refPanelColor());
+            strokeCircle(c, connectionTypeBoxes[i].centerX(), connectionTypeBoxes[i].bottom - 15, 7,
+                    active ? GREEN : Color.rgb(154,181,198), 1.5f);
+            if (active) circle(c, connectionTypeBoxes[i].centerX(), connectionTypeBoxes[i].bottom - 15, 3.2f, GREEN);
         }
     }
 
     private void drawReferenceSettings(Canvas c) {
         // Dynamic values/toggles only; labels and panel title remain from the approved artwork.
-        refPatch(c, 642, 348, 798, 475, refPanelColor());
+        refPatch(c, 642, 349, 798, 369, refPanelColor());
+        refPatch(c, 642, 372, 798, 431, refPanelColor());
+        refPatch(c, 742, 433, 798, 475, refPanelColor());
         drawToggle(c, 770, 360, autoReconnect);
         label(c, wifiHost, 778, 384, 11, MUTED, Paint.Align.RIGHT, false, false);
         label(c, Integer.toString(wifiPort), 778, 405, 11, MUTED, Paint.Align.RIGHT, false, false);
@@ -736,7 +702,8 @@ public final class DashboardView extends View implements ObdManager.Listener {
         String panelState = obdState == ObdManager.State.ECU_CONNECTED ? "Connected" :
                 (obdState == ObdManager.State.DISCONNECTED ? "Not Connected" : stateTitle());
         label(c, panelState, 1238, 339, 12, stateColor(), Paint.Align.RIGHT, true, false);
-        refPatch(c, 827, 350, 1244, 488, refPanelColor());
+        refPatch(c, 849, 365, 959, 486, refPanelColor());
+        refPatch(c, 1090, 350, 1244, 486, refPanelColor());
         float cx=901, cy=402;
         int sc = stateColor();
         strokeCircle(c, cx, cy, 34, sc, 2.2f);
@@ -829,12 +796,8 @@ public final class DashboardView extends View implements ObdManager.Listener {
         // WAITING FOR ECU states. Preserve it pixel-for-pixel until the connection state changes.
         if (obdState == ObdManager.State.DISCONNECTED) return;
 
-        SensorKey[] keys={SensorKey.MODULE_VOLTAGE,SensorKey.COOLANT,SensorKey.INTAKE,SensorKey.THROTTLE,SensorKey.LOAD,SensorKey.FUEL};
-        RectF[] cards={
-                new RectF(28,226,218,321),new RectF(228,226,441,321),new RectF(452,226,640,321),
-                new RectF(650,226,851,321),new RectF(862,226,1060,321),new RectF(1072,226,1255,321)
-        };
-        for(int i=0;i<6;i++) drawReferenceDiagnosticTopValue(c,cards[i],keys[i]);
+        for(int i=0;i<diagnosticsTopCards.length;i++)
+            drawReferenceDiagnosticTopValue(c, diagnosticsTopCards[i], diagnosticsTopKeys[i]);
 
         drawReferenceDtcBody(c);
         drawReferenceReadinessBody(c);
@@ -849,12 +812,11 @@ public final class DashboardView extends View implements ObdManager.Listener {
         refPatch(c,r.left+63,r.top+22,r.right-8,r.top+65,refPanelColor());
         glowLabel(c,reading.display(),r.left+69,r.top+55,30,WHITE,Paint.Align.LEFT,true,1.1f);
         if(reading.state!=SensorFreshness.State.UNSUPPORTED) label(c,key.unit,r.left+126,r.top+54,14,MUTED,Paint.Align.LEFT,false,false);
-        refPatch(c,r.left+14,r.bottom-35,r.right-14,r.bottom-26,Color.rgb(38,50,62));
         drawReferenceProgress(c,r.left+14,r.bottom-35,r.right-14,r.bottom-26,reading);
     }
 
     private void drawReferenceDtcBody(Canvas c) {
-        refPatch(c,44,382,386,511,refPanelColor());
+        refPatch(c,55,389,377,486,refPanelColor());
         float cx=73,cy=416;
         switch(dtc.status){
             case NO_CODES:
@@ -882,7 +844,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void drawReferenceReadinessBody(Canvas c) {
-        refPatch(c,430,383,842,511,refPanelColor());
+        refPatch(c,470,386,833,505,refPanelColor());
         if(!readiness.available){
             label(c,"WAITING FOR ECU",480,414,15,CYAN,Paint.Align.LEFT,true,false);
             String[] waiting={"Misfire Monitor","Fuel System","Comprehensive Components","Catalyst Monitor","Heated Catalyst","Evaporative System","Secondary Air System","Oxygen Sensor","EGR System"};
@@ -917,7 +879,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void drawReferenceLiveBody(Canvas c) {
-        refPatch(c,876,360,1245,519,refPanelColor());
+        refPatch(c,876,365,1242,516,refPanelColor());
         List<SensorKey> keys=liveSensorKeys();
         float y=375-diagLiveScroll;
         int rows=0;
@@ -935,7 +897,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void drawReferenceFreezeBody(Canvas c) {
-        refPatch(c,96,563,412,628,refPanelColor());
+        refPatch(c,96,565,412,625,refPanelColor());
         label(c,"NO FREEZE FRAME DATA",101,579,13,CYAN,Paint.Align.LEFT,true,false);
         label(c,"No freeze frame data available.",101,603,10.5f,MUTED,Paint.Align.LEFT,false,false);
         label(c,obdState == ObdManager.State.ECU_CONNECTED ? "(Mode 02 not read)" : "(Waiting for ECU)",101,620,10.5f,MUTED,Paint.Align.LEFT,false,false);
@@ -1678,12 +1640,15 @@ public final class DashboardView extends View implements ObdManager.Listener {
             return true;
         }
 
-        // One safe touch zone for all modes; it does not overlap CONNECT cards.
-        final float navTop = 654f;
-        if (y >= navTop && y <= 716f) {
+        // Match the real bottom-navigation geometry of each approved v0.9.4 background.
+        // CONNECT has content lower on the screen, while SPORT/DIAGNOSTICS navigation begins earlier.
+        final float navTop = mode == Mode.CONNECT ? 650f : mode == Mode.SPORT ? 598f : 635f;
+        final float navBottom = 716f;
+        if (y >= navTop && y <= navBottom) {
             int idx = Math.max(0, Math.min(2, (int) (x / (DW / 3f))));
             mode = idx == 0 ? Mode.CONNECT : idx == 1 ? Mode.SPORT : Mode.DIAGNOSTICS;
-            invalidate(); return true;
+            obd.setSportPriority(mode == Mode.SPORT);
+            postInvalidateOnAnimation(); return true;
         }
 
         if (mode == Mode.CONNECT) handleConnectTouch(x, y);
@@ -1692,9 +1657,8 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void handleSportTouch(float x, float y) {
-        RectF[] slots = {sportLeftBig, sportRightBig, sportBottomLeft, sportBottomMid, sportBottomRight};
-        for (int i = 0; i < slots.length; i++) {
-            if (slots[i].contains(x, y)) { sensorPickerSlot = i; invalidate(); return; }
+        for (int i = 0; i < sportSlotsRects.length; i++) {
+            if (sportSlotsRects[i].contains(x, y)) { sensorPickerSlot = i; invalidate(); return; }
         }
     }
 
@@ -1890,7 +1854,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
             targetRpm = Float.NaN;
             displayedRpm = Float.NaN;
         }
-        invalidate();
+        if (hostVisible) postInvalidateOnAnimation();
     }
 
     @Override public void onDevices(List<ObdManager.DeviceInfo> devices) {
@@ -1902,23 +1866,23 @@ public final class DashboardView extends View implements ObdManager.Listener {
                 if (!verified.isEmpty() && verified.equals(d.address) && vt.equals(d.transport.name())) { selectedDeviceKey = d.key(); connectedAddress = d.address; break; }
             }
         }
-        invalidate();
+        if (hostVisible) postInvalidateOnAnimation();
     }
 
     @Override public void onTelemetry(ObdManager.Telemetry telemetry) {
         // Keep only the newest snapshot. ELM packet timing no longer drives full-screen redraw timing.
         pendingTelemetry = telemetry == null ? new ObdManager.Telemetry() : telemetry;
-        scheduleTelemetryFrame();
+        if (hostVisible) scheduleTelemetryFrame();
     }
 
     @Override public void onReadiness(ObdManager.Readiness readiness) {
         this.readiness = readiness == null ? new ObdManager.Readiness() : readiness;
-        invalidate();
+        if (hostVisible) postInvalidateOnAnimation();
     }
 
     @Override public void onDtc(ObdManager.DtcResult result) {
         this.dtc = result == null ? new ObdManager.DtcResult() : result;
-        invalidate();
+        if (hostVisible) postInvalidateOnAnimation();
     }
 
     // -----------------------------------------------------------------------------------------

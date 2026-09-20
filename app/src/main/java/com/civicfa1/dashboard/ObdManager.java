@@ -227,6 +227,7 @@ public final class ObdManager {
     private final Context context;
     private final Listener listener;
     private final Handler main = new Handler(Looper.getMainLooper());
+    private volatile boolean sportPriority;
     private final ExecutorService io = Executors.newCachedThreadPool();
     private final BluetoothAdapter bluetoothAdapter;
     private final SharedPreferences prefs;
@@ -515,6 +516,11 @@ public final class ObdManager {
                 closeSessionResources(s);
             }
         });
+    }
+
+    /** Higher-rate polling profile while the Sport dashboard is visible. */
+    public void setSportPriority(boolean enabled) {
+        sportPriority = enabled;
     }
 
     public void disconnect() {
@@ -827,25 +833,32 @@ public final class ObdManager {
     }
 
     private static final class PollDef {
-        final int pid; final long intervalMs;
-        PollDef(int pid, long intervalMs) { this.pid = pid; this.intervalMs = intervalMs; }
+        final int pid;
+        final long normalIntervalMs;
+        final long sportIntervalMs;
+        PollDef(int pid, long normalIntervalMs, long sportIntervalMs) {
+            this.pid = pid;
+            this.normalIntervalMs = normalIntervalMs;
+            this.sportIntervalMs = sportIntervalMs;
+        }
+        long interval(boolean sport) { return sport ? sportIntervalMs : normalIntervalMs; }
     }
 
     private static final PollDef[] POLLS = new PollDef[]{
-            new PollDef(0x0C, 150), // RPM — highest Sport priority
-            new PollDef(0x0D, 220), // speed
-            new PollDef(0x11, 200), // throttle
-            new PollDef(0x04, 260), // load
-            new PollDef(0x10, 650), // MAF
-            new PollDef(0x0B, 700), // MAP
-            new PollDef(0x0E, 750), // timing
-            new PollDef(0x06, 1200), // STFT
-            new PollDef(0x07, 1600), // LTFT
-            new PollDef(0x05, 1600), // coolant
-            new PollDef(0x0F, 1900), // intake
-            new PollDef(0x42, 2200), // module voltage
-            new PollDef(0x5E, 2500), // fuel rate
-            new PollDef(0x2F, 6500)  // fuel level
+            new PollDef(0x0C, 140, 90),   // RPM
+            new PollDef(0x0D, 220, 140),  // speed
+            new PollDef(0x11, 200, 120),  // throttle
+            new PollDef(0x04, 260, 160),  // load
+            new PollDef(0x10, 650, 450),  // MAF
+            new PollDef(0x0B, 700, 450),  // MAP
+            new PollDef(0x0E, 750, 500),  // timing
+            new PollDef(0x06, 1200, 900), // STFT
+            new PollDef(0x07, 1600, 1300),// LTFT
+            new PollDef(0x05, 1600, 1200),// coolant
+            new PollDef(0x0F, 1900, 1300),// intake
+            new PollDef(0x42, 2200, 1500),// module voltage
+            new PollDef(0x5E, 2500, 1800),// fuel rate
+            new PollDef(0x2F, 6500, 5000) // fuel level
     };
 
     private void schedulerLoop(Session s) throws Exception {
@@ -860,21 +873,21 @@ public final class ObdManager {
             now = System.currentTimeMillis();
             PollDef due = null;
             long earliest = Long.MAX_VALUE;
+            // Fair scheduler: service the oldest due PID instead of always preferring array order.
             for (PollDef p : POLLS) {
                 if (!s.telemetry.supportedPids.contains(p.pid)) continue;
                 long at = s.nextDue.getOrDefault(p.pid, now);
-                if (at <= now) { due = p; break; }
-                earliest = Math.min(earliest, at);
+                if (at < earliest) { earliest = at; due = p; }
             }
-            if (due != null) {
+            if (due != null && earliest <= now) {
                 pollPid(s, due.pid);
                 long mult = prefs.getBoolean("low_power_mode", false) ? 2L : 1L;
                 long afterPoll = System.currentTimeMillis();
-                s.nextDue.put(due.pid, afterPoll + due.intervalMs * mult);
-                // Cap main-thread telemetry delivery at 20 Hz. UI interpolates only the visual tach arc.
+                s.nextDue.put(due.pid, afterPoll + due.interval(sportPriority) * mult);
+                // Up to ~30 Hz telemetry delivery when the adapter and ECU can sustain it.
                 if (afterPoll >= telemetryPublishDue) {
                     postTelemetry(s);
-                    telemetryPublishDue = afterPoll + 50L;
+                    telemetryPublishDue = afterPoll + 33L;
                 }
                 continue;
             }
@@ -894,9 +907,9 @@ public final class ObdManager {
             }
             if (now >= telemetryPublishDue) {
                 postTelemetry(s); // expires stale fields without flooding the main thread
-                telemetryPublishDue = now + 50L;
+                telemetryPublishDue = now + 33L;
             }
-            long sleep = earliest == Long.MAX_VALUE ? 50L : Math.max(15L, Math.min(60L, earliest - now));
+            long sleep = earliest == Long.MAX_VALUE ? 40L : Math.max(8L, Math.min(40L, earliest - now));
             sleep(sleep);
         }
     }

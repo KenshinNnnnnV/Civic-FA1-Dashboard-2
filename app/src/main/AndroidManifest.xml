@@ -15,12 +15,16 @@
         android:allowBackup="false"
         android:label="Civic FA1 Dashboard"
         android:theme="@style/AppTheme"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:hardwareAccelerated="true">
         <activity
             android:name=".SplashActivity"
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize"
-            android:exported="true">
+            android:exported="true"
+            android:excludeFromRecents="false"
+            android:alwaysRetainTaskState="true"
+            android:finishOnTaskLaunch="false">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -31,6 +35,11 @@
             android:name=".MainActivity"
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize"
-            android:exported="false" />
+            android:exported="false"
+            android:excludeFromRecents="false"
+            android:launchMode="singleTask"
+            android:alwaysRetainTaskState="true"
+            android:finishOnTaskLaunch="false"
+            android:noHistory="false" />
     </application>
 </manifest>

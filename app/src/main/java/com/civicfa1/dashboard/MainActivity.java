@@ -172,10 +172,9 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onStop() {
-        // Normal Android background behavior: keep the Activity/task alive so Home
-        // or the app switcher minimizes the dashboard instead of closing it.
-        // The OBD transport is still suspended while the UI is not visible and
-        // onHostStart() will refresh/reconnect when the user returns.
+        // v0.9.4: minimizing must NOT close the dashboard or tear down the OBD session.
+        // DashboardView only pauses visual frame callbacks while the Activity is hidden;
+        // the existing ELM327 session may stay alive for instant resume.
         if (dashboardView != null) dashboardView.onHostStop();
         super.onStop();
     }
