@@ -108,7 +108,7 @@
 - versionName 0.7.1
 - GitHub Actions artifact: `Civic-FA1-Dashboard-v0.7.1-APK`
 
-## 0.9.4
+## 0.9.5
 - New CONNECT/SPORT/DIAGNOSTICS runtime design while preserving v0.9.3 mode architecture.
 - 60 FPS UI frame target with coalesced telemetry redraws.
 - Faster SPORT polling profile and fair PID scheduler.

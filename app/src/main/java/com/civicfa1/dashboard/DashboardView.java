@@ -24,7 +24,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Civic FA1 Dashboard v0.9.4 performance + approved-style UI.
+ * Civic FA1 Dashboard v0.9.5 clean-runtime UI + performance.
  *
  * Three fixed 1280x720 modes: CONNECT / SPORT / DIAGNOSTICS.
  * The three approved 1280x720 disconnected-state references are the locked visual shell. Runtime code replaces
@@ -469,14 +469,14 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private int refPanelColor() {
-        if (mode == Mode.CONNECT) return Color.rgb(0, 16, 19);
-        if (mode == Mode.DIAGNOSTICS) return Color.rgb(2, 17, 18);
-        return Color.rgb(4, 13, 17);
+        if (mode == Mode.CONNECT) return Color.rgb(0, 13, 24);
+        if (mode == Mode.DIAGNOSTICS) return Color.rgb(0, 14, 11);
+        return Color.rgb(1, 9, 12);
     }
     private int refPanelColor2() {
-        if (mode == Mode.CONNECT) return Color.rgb(3, 17, 21);
-        if (mode == Mode.DIAGNOSTICS) return Color.rgb(1, 15, 17);
-        return Color.rgb(4, 15, 18);
+        if (mode == Mode.CONNECT) return Color.rgb(0, 13, 24);
+        if (mode == Mode.DIAGNOSTICS) return Color.rgb(0, 14, 11);
+        return Color.rgb(1, 9, 12);
     }
     private int refHeaderColor() {
         if (mode == Mode.CONNECT) return Color.rgb(0, 10, 15);
@@ -511,14 +511,9 @@ public final class DashboardView extends View implements ObdManager.Listener {
         String rpm = valueText(telemetry.rpm, 0x0C, 0);
         glowLabel(c, rpm, 640, 313, 66, WHITE, Paint.Align.CENTER, true, 1.8f);
 
-        // Integrated speed pedestal.
-        fill.setColor(Color.rgb(5, 11, 14));
-        path.reset();
-        path.moveTo(506, 383); path.lineTo(774, 383); path.lineTo(862, 455);
-        path.lineTo(418, 455); path.close();
-        c.drawPath(path, fill);
-        line(c, 520, 384, 760, 384, RED, 2.0f);
-        line(c, 438, 455, 842, 455, Color.argb(150, 255, 45, 66), 1.5f);
+        // Keep the approved speed pedestal from the PNG. Clear only the baked value text,
+        // never the whole pedestal/card, then draw the live value.
+        refPatch(c, 570, 398, 735, 449, refTachColor());
         glowLabel(c, valueText(telemetry.speed, 0x0D, 0), 643, 447, 70, WHITE, Paint.Align.CENTER, true, 1.8f);
         label(c, "km/h", 710, 442, 23, MUTED, Paint.Align.LEFT, false, false);
 
@@ -587,8 +582,8 @@ public final class DashboardView extends View implements ObdManager.Listener {
         boolean large = slot < 2;
         if (large) {
             // Erase only the example number/unit and example green bar fill.
-            if (slot == 0) refPatch(c, 122, 343, 294, 407, refPanelColor());
-            else refPatch(c, 995, 342, 1194, 408, refPanelColor());
+            if (slot == 0) refPatch(c, 122, 360, 292, 405, refPanelColor());
+            else refPatch(c, 1000, 360, 1192, 405, refPanelColor());
             float x = slot == 0 ? 133 : 1005;
             float valueBaseline = 400;
             glowLabel(c, reading.display(), x, valueBaseline, 49, WHITE, Paint.Align.LEFT, true, 1.3f);
@@ -597,27 +592,27 @@ public final class DashboardView extends View implements ObdManager.Listener {
             }
             float l = slot == 0 ? 49 : 918;
             float rr = slot == 0 ? 360 : 1228;
-            refPatch(c, l, 411, rr, 424, Color.rgb(38, 50, 62));
+            // Track is static artwork; runtime draws only the live fill.
             drawReferenceProgress(c, l, 411, rr, 424, reading);
         } else {
             float l = slot == 2 ? 143 : slot == 3 ? 560 : 967;
             float rr = slot == 2 ? 260 : slot == 3 ? 675 : 1090;
-            refPatch(c, l, 501, rr, 539, refPanelColor());
+            refPatch(c, l, 504, rr, 537, refPanelColor());
             glowLabel(c, reading.display(), l, 534, 34, WHITE, Paint.Align.LEFT, true, 1.2f);
             if (reading.state != SensorFreshness.State.UNSUPPORTED) {
                 label(c, key.unit, l + 62, 531, 17, MUTED, Paint.Align.LEFT, false, false);
             }
             float barL = slot == 2 ? 50 : slot == 3 ? 467 : 870;
             float barR = slot == 2 ? 402 : slot == 3 ? 809 : 1224;
-            refPatch(c, barL, 540, barR, 552, Color.rgb(38, 50, 62));
+            // Track is static artwork; runtime draws only the live fill.
             drawReferenceProgress(c, barL, 540, barR, 552, reading);
         }
     }
 
     private void drawReferenceSportCustomCard(Canvas c, RectF r, SensorKey key, boolean large) {
-        // Custom cards are intentionally rebuilt only inside the card content area. The original
-        // approved card border/background remains untouched.
-        refPatch(c, r.left + 12, r.top + 10, r.right - 12, r.bottom - 10, refPanelColor());
+        // Preserve the approved card body. Only dynamic icon/title/value zones are refreshed.
+        refPatch(c, r.left + 18, r.top + 12, r.right - 18, r.top + (large ? 58 : 50), refPanelColor());
+        refPatch(c, r.left + 82, r.top + (large ? 58 : 46), r.right - 20, r.top + (large ? 112 : 76), refPanelColor());
         SensorReading reading = sensorReading(key);
         drawIcon(c, key.icon, r.left + 44, r.top + (large ? 45 : 37), GREEN, large ? .75f : .62f);
         label(c, key.title, r.left + (large ? 105 : 90), r.top + 34, large ? 17 : 15, MUTED, Paint.Align.LEFT, false, false);
@@ -625,13 +620,11 @@ public final class DashboardView extends View implements ObdManager.Listener {
         if (large) {
             glowLabel(c, reading.display(), r.left + 106, r.top + 101, 49, WHITE, Paint.Align.LEFT, true, 1.3f);
             if (reading.state != SensorFreshness.State.UNSUPPORTED) label(c, key.unit, r.left + 220, r.top + 95, 21, MUTED, Paint.Align.LEFT, false, false);
-            refPatch(c, r.left + 20, r.bottom - 46, r.right - 20, r.bottom - 34, Color.rgb(38,50,62));
             drawReferenceProgress(c, r.left + 20, r.bottom - 46, r.right - 20, r.bottom - 34, reading);
             scaleLabels(c, r, key, r.bottom - 13);
         } else {
             glowLabel(c, reading.display(), r.left + 90, r.top + 65, 34, WHITE, Paint.Align.LEFT, true, 1.3f);
             if (reading.state != SensorFreshness.State.UNSUPPORTED) label(c, key.unit, r.left + 160, r.top + 62, 17, MUTED, Paint.Align.LEFT, false, false);
-            refPatch(c, r.left + 20, r.bottom - 45, r.right - 20, r.bottom - 33, Color.rgb(38,50,62));
             drawReferenceProgress(c, r.left + 20, r.bottom - 45, r.right - 20, r.bottom - 33, reading);
             scaleLabels(c, r, key, r.bottom - 12);
         }
@@ -673,28 +666,29 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void drawReferenceConnectionType(Canvas c) {
-        // Remove the baked BLE example state and redraw the three choices from the same geometry.
-        refPatch(c, 854, 211, 1247, 303, refPanelColor());
+        // The three button bodies/icons/labels are static artwork. Runtime only marks selection.
         ObdManager.Transport[] ts = {ObdManager.Transport.BLE, ObdManager.Transport.BLUETOOTH, ObdManager.Transport.WIFI};
-        String[] names = {"BLE 4.0", "BT 3.0", "Wi-Fi"};
-        Icon[] icons = {Icon.BLUETOOTH, Icon.BLUETOOTH, Icon.WIFI};
         for (int i=0;i<3;i++) {
             boolean active = selectedTransport == ts[i];
-            fill.setColor(active ? Color.rgb(4, 55, 38) : Color.rgb(5, 20, 25));
-            c.drawRoundRect(connectionTypeBoxes[i], 6, 6, fill);
-            stroke.setColor(active ? GREEN : Color.rgb(57, 83, 96));
-            stroke.setStrokeWidth(active ? 1.7f : 1f);
-            c.drawRoundRect(connectionTypeBoxes[i], 6, 6, stroke);
-            drawIcon(c, icons[i], connectionTypeBoxes[i].centerX(), connectionTypeBoxes[i].top + 24, active ? GREEN : Color.rgb(181, 204, 226), .55f);
-            label(c, names[i], connectionTypeBoxes[i].centerX(), connectionTypeBoxes[i].top + 57, 13, WHITE, Paint.Align.CENTER, false, false);
-            strokeCircle(c, connectionTypeBoxes[i].centerX(), connectionTypeBoxes[i].bottom - 15, 7, active ? GREEN : Color.rgb(154,181,198), 1.5f);
+            if (active) {
+                stroke.setColor(GREEN);
+                stroke.setStrokeWidth(2.2f);
+                c.drawRoundRect(connectionTypeBoxes[i], 6, 6, stroke);
+            }
+            // Clear/redraw only the small radio indicator area.
+            refPatch(c, connectionTypeBoxes[i].centerX()-11, connectionTypeBoxes[i].bottom-25,
+                    connectionTypeBoxes[i].centerX()+11, connectionTypeBoxes[i].bottom-4, refPanelColor());
+            strokeCircle(c, connectionTypeBoxes[i].centerX(), connectionTypeBoxes[i].bottom - 15, 7,
+                    active ? GREEN : Color.rgb(154,181,198), 1.5f);
             if (active) circle(c, connectionTypeBoxes[i].centerX(), connectionTypeBoxes[i].bottom - 15, 3.2f, GREEN);
         }
     }
 
     private void drawReferenceSettings(Canvas c) {
         // Dynamic values/toggles only; labels and panel title remain from the approved artwork.
-        refPatch(c, 642, 348, 798, 475, refPanelColor());
+        refPatch(c, 642, 349, 798, 369, refPanelColor());
+        refPatch(c, 642, 372, 798, 431, refPanelColor());
+        refPatch(c, 742, 433, 798, 475, refPanelColor());
         drawToggle(c, 770, 360, autoReconnect);
         label(c, wifiHost, 778, 384, 11, MUTED, Paint.Align.RIGHT, false, false);
         label(c, Integer.toString(wifiPort), 778, 405, 11, MUTED, Paint.Align.RIGHT, false, false);
@@ -708,7 +702,6 @@ public final class DashboardView extends View implements ObdManager.Listener {
         String panelState = obdState == ObdManager.State.ECU_CONNECTED ? "Connected" :
                 (obdState == ObdManager.State.DISCONNECTED ? "Not Connected" : stateTitle());
         label(c, panelState, 1238, 339, 12, stateColor(), Paint.Align.RIGHT, true, false);
-        refPatch(c, 827, 350, 1244, 488, refPanelColor());
         float cx=901, cy=402;
         int sc = stateColor();
         strokeCircle(c, cx, cy, 34, sc, 2.2f);
@@ -739,7 +732,6 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void drawReferenceRecentDevices(Canvas c) {
-        refPatch(c, 31, 536, 424, 643, refPanelColor());
         List<ObdManager.DeviceInfo> list = visibleDevicePool();
         int start = Math.min(deviceScroll, Math.max(0, list.size()-4));
         if (list.isEmpty()) {
@@ -763,7 +755,6 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void drawReferenceTransportOptions(Canvas c) {
-        refPatch(c, 455, 536, 827, 643, refPanelColor());
         String[] names={"Auto (Recommended)","BLE 4.0","Bluetooth 3.0","Wi-Fi (TCP)","Wi-Fi (UDP)"};
         String[] notes={"Verified adapter only","Low power, stable","Wider compatibility","TCP endpoint","UDP not used"};
         ObdManager.Transport[] types={ObdManager.Transport.AUTO,ObdManager.Transport.BLE,ObdManager.Transport.BLUETOOTH,ObdManager.Transport.WIFI,ObdManager.Transport.WIFI};
@@ -778,7 +769,6 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void drawReferenceConnectionDiagnostics(Canvas c) {
-        refPatch(c, 858, 536, 1244, 643, refPanelColor());
         String[] names={"Adapter detected","Transport initialized","Protocol handshake","ECU responding","Data stream active","Total connect time"};
         boolean adapter = obdState != ObdManager.State.DISCONNECTED && obdState != ObdManager.State.SEARCHING;
         boolean transport = obdState == ObdManager.State.INITIALIZING || obdState == ObdManager.State.ECU_CONNECTING || obdState == ObdManager.State.ECU_CONNECTED;
@@ -797,10 +787,8 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void drawReferenceDiagnosticsOverlay(Canvas c) {
-        // The locked disconnected diagnostics reference already contains truthful -- / N/A /
-        // WAITING FOR ECU states. Preserve it pixel-for-pixel until the connection state changes.
-        if (obdState == ObdManager.State.DISCONNECTED) return;
-
+        // v0.9.5 clean runtime background: dynamic diagnostic states are always drawn by code,
+        // including the disconnected / waiting-for-ECU state.
         for(int i=0;i<diagnosticsTopCards.length;i++)
             drawReferenceDiagnosticTopValue(c, diagnosticsTopCards[i], diagnosticsTopKeys[i]);
 
@@ -817,12 +805,10 @@ public final class DashboardView extends View implements ObdManager.Listener {
         refPatch(c,r.left+63,r.top+22,r.right-8,r.top+65,refPanelColor());
         glowLabel(c,reading.display(),r.left+69,r.top+55,30,WHITE,Paint.Align.LEFT,true,1.1f);
         if(reading.state!=SensorFreshness.State.UNSUPPORTED) label(c,key.unit,r.left+126,r.top+54,14,MUTED,Paint.Align.LEFT,false,false);
-        refPatch(c,r.left+14,r.bottom-35,r.right-14,r.bottom-26,Color.rgb(38,50,62));
         drawReferenceProgress(c,r.left+14,r.bottom-35,r.right-14,r.bottom-26,reading);
     }
 
     private void drawReferenceDtcBody(Canvas c) {
-        refPatch(c,44,382,386,511,refPanelColor());
         float cx=73,cy=416;
         switch(dtc.status){
             case NO_CODES:
@@ -850,14 +836,13 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void drawReferenceReadinessBody(Canvas c) {
-        refPatch(c,430,383,842,511,refPanelColor());
         if(!readiness.available){
-            label(c,"WAITING FOR ECU",480,414,15,CYAN,Paint.Align.LEFT,true,false);
+            label(c,"WAITING FOR ECU",480,358,15,CYAN,Paint.Align.LEFT,true,false);
             String[] waiting={"Misfire Monitor","Fuel System","Comprehensive Components","Catalyst Monitor","Heated Catalyst","Evaporative System","Secondary Air System","Oxygen Sensor","EGR System"};
             for(int i=0;i<waiting.length;i++){
                 int col=i>=4?1:0;
                 int row=i>=4?i-4:i;
-                float x=438+col*220, y=438+row*22;
+                float x=438+col*220, y=384+row*22;
                 circle(c,x,y-4,7,Color.rgb(120,140,150));
                 label(c,"--",x,y,9,Color.rgb(40,55,62),Paint.Align.CENTER,true,false);
                 label(c,waiting[i],x+20,y,10.5f,MUTED,Paint.Align.LEFT,false,false);
@@ -865,7 +850,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
             }
             return;
         }
-        label(c,readinessSummary(),480,378,15,GREEN,Paint.Align.LEFT,true,false);
+        label(c,readinessSummary(),480,358,15,GREEN,Paint.Align.LEFT,true,false);
         String[] wanted={"Misfire","Fuel System","Components","Catalyst","Heated Catalyst","Evaporative System","Secondary Air","O2 Sensor","EGR"};
         int shown=0;
         for(String name:wanted){
@@ -873,7 +858,7 @@ public final class DashboardView extends View implements ObdManager.Listener {
             if(ms==null || ms==ObdManager.MonitorState.UNSUPPORTED) continue;
             int col=shown>=4?1:0;
             int row=shown>=4?shown-4:shown;
-            float x=438+col*220, y=406+row*23;
+            float x=438+col*220, y=384+row*23;
             int colr=ms==ObdManager.MonitorState.COMPLETE?GREEN:ORANGE;
             circle(c,x,y-4,7,colr);
             if(ms==ObdManager.MonitorState.COMPLETE) drawCheck(c,x,y-4,Color.rgb(0,60,40),.27f);
@@ -885,7 +870,6 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void drawReferenceLiveBody(Canvas c) {
-        refPatch(c,876,360,1245,519,refPanelColor());
         List<SensorKey> keys=liveSensorKeys();
         float y=375-diagLiveScroll;
         int rows=0;
@@ -903,7 +887,6 @@ public final class DashboardView extends View implements ObdManager.Listener {
     }
 
     private void drawReferenceFreezeBody(Canvas c) {
-        refPatch(c,96,563,412,628,refPanelColor());
         label(c,"NO FREEZE FRAME DATA",101,579,13,CYAN,Paint.Align.LEFT,true,false);
         label(c,"No freeze frame data available.",101,603,10.5f,MUTED,Paint.Align.LEFT,false,false);
         label(c,obdState == ObdManager.State.ECU_CONNECTED ? "(Mode 02 not read)" : "(Waiting for ECU)",101,620,10.5f,MUTED,Paint.Align.LEFT,false,false);

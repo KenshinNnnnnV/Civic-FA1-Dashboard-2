@@ -22,7 +22,7 @@
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize"
             android:exported="true"
-            android:excludeFromRecents="true"
+            android:excludeFromRecents="false"
             android:alwaysRetainTaskState="true"
             android:finishOnTaskLaunch="false">
             <intent-filter>
@@ -36,7 +36,7 @@
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize"
             android:exported="false"
-            android:excludeFromRecents="true"
+            android:excludeFromRecents="false"
             android:launchMode="singleTask"
             android:alwaysRetainTaskState="true"
             android:finishOnTaskLaunch="false"
