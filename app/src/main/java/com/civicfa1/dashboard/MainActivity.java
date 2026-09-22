@@ -20,7 +20,7 @@ import java.util.List;
 public class MainActivity extends Activity {
 
     private static final int BT_PERMISSION_REQUEST = 704;
-    private DashboardView dashboardView;
+    private DashboardRootView dashboardView;
     private boolean permissionDialogShown;
 
     public interface WifiEndpointCallback {
@@ -35,7 +35,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         hideSystemUi();
-        dashboardView = new DashboardView(this);
+        dashboardView = new DashboardRootView(this);
         setContentView(dashboardView);
         // Bluetooth permission is requested only when the user scans/connects a Bluetooth transport.
     }
@@ -172,9 +172,9 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onStop() {
-        // v0.9.4: minimizing must NOT close the dashboard or tear down the OBD session.
-        // DashboardView only pauses visual frame callbacks while the Activity is hidden;
-        // the existing ELM327 session may stay alive for instant resume.
+        // Minimizing must NOT close the dashboard or tear down the OBD session.
+        // DashboardRootView pauses only UI freshness callbacks while hidden;
+        // the verified ELM327 session remains alive for instant resume.
         if (dashboardView != null) dashboardView.onHostStop();
         super.onStop();
     }

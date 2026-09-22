@@ -1,8 +1,0 @@
-CIVIC FA1 DASHBOARD v1.0.2
-
-1. Extract this ZIP.
-2. Open/add the extracted folder in GitHub Desktop.
-3. Commit message: v1.0.2 dynamic RPM arc and configurable Sport widgets
-4. Push to main.
-5. Open GitHub Actions -> Build Android APK.
-6. Download artifact: Civic-FA1-Dashboard-v1.0.2-APK
