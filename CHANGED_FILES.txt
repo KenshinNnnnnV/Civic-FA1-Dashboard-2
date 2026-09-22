@@ -1,0 +1,45 @@
+Version/config:
+- app/build.gradle
+- .github/workflows/build-apk.yml
+- README.md
+- V1.1.0_BUILD_STATUS.md
+- tools/verify_native_ui.sh
+
+Modified runtime:
+- app/src/main/java/com/civicfa1/dashboard/MainActivity.java
+
+New native UI runtime:
+- app/src/main/java/com/civicfa1/dashboard/DashboardRootView.java
+- app/src/main/java/com/civicfa1/dashboard/RefLayout.java
+- app/src/main/java/com/civicfa1/dashboard/Ui.java
+- app/src/main/java/com/civicfa1/dashboard/HeaderView.java
+- app/src/main/java/com/civicfa1/dashboard/ModeTabView.java
+- app/src/main/java/com/civicfa1/dashboard/NeonPanelView.java
+- app/src/main/java/com/civicfa1/dashboard/InfoPanelView.java
+- app/src/main/java/com/civicfa1/dashboard/ActionButtonView.java
+- app/src/main/java/com/civicfa1/dashboard/ToggleView.java
+- app/src/main/java/com/civicfa1/dashboard/TransportButtonView.java
+- app/src/main/java/com/civicfa1/dashboard/DeviceListView.java
+- app/src/main/java/com/civicfa1/dashboard/SensorType.java
+- app/src/main/java/com/civicfa1/dashboard/SensorCardView.java
+- app/src/main/java/com/civicfa1/dashboard/TachometerView.java
+- app/src/main/java/com/civicfa1/dashboard/ConnectScreenView.java
+- app/src/main/java/com/civicfa1/dashboard/SportScreenView.java
+- app/src/main/java/com/civicfa1/dashboard/DiagnosticsScreenView.java
+
+Removed legacy runtime:
+- app/src/main/java/com/civicfa1/dashboard/DashboardView.java
+- app/src/main/res/drawable-nodpi/background_connect.png
+- app/src/main/res/drawable-nodpi/background_sport.png
+- app/src/main/res/drawable-nodpi/background_diagnostics.png
+
+Retained OBD core (audited/verified, not rewritten in this package):
+- app/src/main/java/com/civicfa1/dashboard/ObdManager.java
+- app/src/main/java/com/civicfa1/dashboard/ObdProtocol.java
+- app/src/main/java/com/civicfa1/dashboard/SensorFreshness.java
+
+Packaging/deployment hardening:
+- PREPARE_REPO_WINDOWS.cmd
+- tools/clean_legacy_windows.ps1
+- workflow invokes verifier via bash
+- verifier rejects all known old runtime dashboard artwork

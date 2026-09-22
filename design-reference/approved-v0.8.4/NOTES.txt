@@ -1,8 +1,0 @@
-Civic FA1 Dashboard v0.8.4 SPORT runtime contract
-
-- CONNECT and DIAGNOSTICS remain based on approved-v0.8.1 artwork.
-- SPORT keeps the approved composition but uses a neutral/dark inactive tach scale.
-- Live RPM arc is dynamic: green 0-2500, yellow 2500-4500, red above 4500.
-- No separate RPM needle/marker.
-- Center RPM number is the latest real ECU sample; smoothing is arc-only.
-- SPORT active-tab glow is constrained to the common tab top edge.
